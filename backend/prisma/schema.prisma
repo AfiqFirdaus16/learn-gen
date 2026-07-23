@@ -1,0 +1,29 @@
+// Ini adalah generator yang akan menerjemahkan skema Anda menjadi kode JavaScript
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Konfigurasi koneksi ke Supabase
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL") // Prisma menggunakan ini khusus untuk memodifikasi struktur tabel
+}
+
+// ==========================================
+// RANCANGAN TABEL DATABASE
+// ==========================================
+
+model Admin {
+  // Primary Key: ID unik yang dibuat otomatis
+  id        Int      @id @default(autoincrement())
+  
+  // Data Profil Admin
+  nama      String
+  email     String   @unique // @unique memastikan tidak ada dua admin dengan email yang sama
+  password  String   // Akan diisi dengan teks acak hasil enkripsi (hash), BUKAN password asli
+  
+  // Pelacakan Waktu (Audit Trail)
+  createdAt DateTime @default(now()) // Otomatis mencatat waktu saat akun pertama kali dibuat
+  updatedAt DateTime @updatedAt      // Otomatis memperbarui waktu setiap kali ada perubahan data (misal: ganti password)
+}
