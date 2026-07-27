@@ -3,11 +3,9 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// Konfigurasi koneksi ke Supabase
+// Konfigurasi koneksi ke Supabase (URL kini diatur lewat prisma.config.ts)
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL") // Prisma menggunakan ini khusus untuk memodifikasi struktur tabel
+  provider = "postgresql"
 }
 
 // ==========================================
@@ -20,10 +18,43 @@ model Admin {
   
   // Data Profil Admin
   nama      String
-  email     String   @unique // @unique memastikan tidak ada dua admin dengan email yang sama
-  password  String   // Akan diisi dengan teks acak hasil enkripsi (hash), BUKAN password asli
+  email     String   @unique 
+  password  String   
+  
+  // Relasi
+  videos    Video[]
   
   // Pelacakan Waktu (Audit Trail)
-  createdAt DateTime @default(now()) // Otomatis mencatat waktu saat akun pertama kali dibuat
-  updatedAt DateTime @updatedAt      // Otomatis memperbarui waktu setiap kali ada perubahan data (misal: ganti password)
+  createdAt DateTime @default(now()) 
+  updatedAt DateTime @updatedAt      
+}
+
+model Video {
+  // Primary Key
+  id        Int      @id @default(autoincrement())
+  
+  // Foreign Key
+  adminId   Int
+  admin     Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  
+  // Data Pembelajaran
+  learnerName      String
+  topic            String
+  learningStyle    String  // visual, auditory, kinesthetic, dll
+  persona          String  // guru ramah, mentor serius, dll
+  duration         Int     // dalam menit
+  accentType       String  // British, American, dll
+  
+  // Generated Data
+  generatedPrompt  String?  @db.Text
+  heygenVideoId    String?  @unique
+  videoUrl         String?
+  
+  // Status
+  status           String   @default("pending") // pending, processing, completed, failed
+  
+  // Metadata
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  completedAt      DateTime?
 }
