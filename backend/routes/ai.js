@@ -55,15 +55,17 @@ router.get('/check-connection', async (req, res) => {
 // ==========================================
 router.post('/generate', async (req, res) => {
     try {
-        // 1. Menangkap topik dari input pengguna di frontend
-        const { topik } = req.body;
+        // 1. Menangkap topik dan pilihan persona dari frontend
+        const { topik, avatar_id, voice_id } = req.body;
 
-        if (!topik) {
-            return res.status(400).json({ error: "Topik pembelajaran wajib diisi!" });
+        // Validasi input: pastikan semua data dikirim
+        if (!topik || !avatar_id || !voice_id) {
+            return res.status(400).json({
+                error: "Topik, Avatar, dan Suara wajib diisi!"
+            });
         }
 
-        // 2. PROSES GROQ AI: Membuat Naskah dengan Batasan
-        // Di sinilah kita mendikte (memberi instruksi ketat) kepada AI
+        // 2. PROSES GROQ AI: Membuat Naskah
         const groqResponse = await groq.chat.completions.create({
             messages: [
                 {
@@ -76,28 +78,28 @@ router.post('/generate', async (req, res) => {
                 }
             ],
             model: "llama-3.1-8b-instant",
-            temperature: 0.7, // Mengatur tingkat kreativitas AI (0.0 kaku - 1.0 kreatif)
+            temperature: 0.7,
         });
 
         const naskah = groqResponse.choices[0]?.message?.content;
 
-        // 3. PROSES HEYGEN AI: Mengubah Naskah menjadi Video
+        // 3. PROSES HEYGEN AI: Menggunakan Persona Pilihan User
         const heygenResponse = await axios.post('https://api.heygen.com/v2/video/generate', {
             video_inputs: [
                 {
                     character: {
                         type: "avatar",
-                        avatar_id: "GANTI_DENGAN_AVATAR_ID_ANDA", // ID karakter visual HeyGen
+                        avatar_id: avatar_id, // <- Menerima ID secara dinamis dari frontend
                         avatar_style: "normal"
                     },
                     voice: {
                         type: "text",
                         input_text: naskah,
-                        voice_id: "GANTI_DENGAN_VOICE_ID_ANDA" // ID suara (Dubber) HeyGen
+                        voice_id: voice_id // <- Menerima ID secara dinamis dari frontend
                     }
                 }
             ],
-            test: true, // Sangat disarankan bernilai 'true' saat tahap development agar tidak menguras saldo/kredit HeyGen Anda
+            test: true, // Ubah ke false nanti jika ingin membuat video sungguhan (memotong kredit)
             aspect_ratio: "16:9"
         }, {
             headers: {
@@ -105,11 +107,10 @@ router.post('/generate', async (req, res) => {
                 'Content-Type': 'application/json'
             }
         });
-
-        // HeyGen tidak langsung memberikan file MP4, melainkan memberikan ID Antrean Video
+        
         const videoId = heygenResponse.data.data.video_id;
 
-        // 4. Mengembalikan hasil ke Frontend
+        // 4. Mengembalikan hasil
         res.status(200).json({
             success: true,
             message: "Proses pembuatan video berhasil dimulai!",

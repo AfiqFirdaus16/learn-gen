@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -11,146 +11,232 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { saveVideo, type VideoItem } from '@/lib/video-storage';
 
 export default function CreateVideoPage() {
-  const router = useRouter();
-  const [formData, setFormData] = useState({
-    learnerName: '',
-    topic: '',
-    learningStyle: 'visual',
-    persona: 'guru ramah',
-    duration: '3',
-    accentType: 'British',
-  });
-  const [isSubmitting, setIsSubmitting] = useState(false);
+    const router = useRouter();
 
-  const generatedPrompt = useMemo(() => {
-    const duration = Number(formData.duration) || 3;
-    return `Buat video pembelajaran tentang ${formData.topic || 'topik yang dipilih'} berdurasi ${duration} menit dengan gaya ${formData.learningStyle}, persona ${formData.persona}, dan aksen ${formData.accentType}.`;
-  }, [formData]);
+    // State Input Form
+    const [formData, setFormData] = useState({
+        learnerName: '',
+        topic: '',
+        learningStyle: 'visual',
+        avatarId: '', // Diubah dari 'persona' agar cocok dengan HeyGen
+        voiceId: '',  // Diubah dari 'accentType' agar cocok dengan HeyGen
+        duration: '3',
+    });
 
-  const handleChange = (field: string, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-  };
+    // State untuk API HeyGen Assets
+    const [avatars, setAvatars] = useState<any[]>([]);
+    const [voices, setVoices] = useState<any[]>([]);
+    const [isLoadingAssets, setIsLoadingAssets] = useState(true);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [errorMsg, setErrorMsg] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
+    // Mengambil data Avatar & Voice dari Backend saat halaman dimuat
+    useEffect(() => {
+        const fetchAssets = async () => {
+            try {
+                const response = await fetch("http://localhost:5000/api/ai/heygen-assets");
+                const json = await response.json();
 
-    const videoItem: VideoItem = {
-      id: `video-${Date.now()}`,
-      learnerName: formData.learnerName || 'Pembelajar',
-      topic: formData.topic || 'Topik belum ditentukan',
-      learningStyle: formData.learningStyle,
-      persona: formData.persona,
-      duration: Number(formData.duration) || 3,
-      accentType: formData.accentType,
-      generatedPrompt,
-      status: 'Completed',
-      createdAt: new Date().toLocaleString('id-ID', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
+                if (json.success) {
+                    const fetchedAvatars = json.raw_avatars?.data?.avatars || [];
+                    const fetchedVoices = json.raw_voices?.data?.voices || [];
+
+                    // Filter hanya suara bahasa Indonesia
+                    const indoVoices = fetchedVoices.filter((v: any) =>
+                        v.language === "Indonesian" || v.language === "id-ID"
+                    );
+
+                    setAvatars(fetchedAvatars);
+                    setVoices(indoVoices.length > 0 ? indoVoices : fetchedVoices);
+                }
+            } catch (err) {
+                console.error("Gagal memuat aset:", err);
+                setErrorMsg("Gagal memuat pilihan wajah dan suara dari server.");
+            } finally {
+                setIsLoadingAssets(false);
+            }
+        };
+
+        fetchAssets();
+    }, []);
+
+    // Membuat prompt dinamis yang akan dikirim ke Groq (Topik)
+    const generatedPrompt = useMemo(() => {
+        const duration = Number(formData.duration) || 3;
+        return `Buat naskah video pembelajaran tentang ${formData.topic || 'topik yang dipilih'} berdurasi ${duration} menit dengan gaya ${formData.learningStyle}. Namanya adalah ${formData.learnerName || 'Siswa'}.`;
+    }, [formData]);
+
+    const handleChange = (field: string, value: string) => {
+        setFormData((prev) => ({ ...prev, [field]: value }));
     };
 
-    saveVideo(videoItem);
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setErrorMsg('');
 
-    setTimeout(() => {
-      router.push('/dashboard/my-videos');
-    }, 400);
-  };
+        // Validasi internal
+        if (!formData.avatarId || !formData.voiceId) {
+            setErrorMsg('Harap pilih Avatar dan Suara terlebih dahulu.');
+            return;
+        }
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6 dark:from-slate-950 dark:to-slate-900">
-      <div className="mx-auto max-w-5xl space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-blue-600">Buat video baru</p>
-            <h1 className="text-3xl font-bold">Form pembuat video AI</h1>
-          </div>
-          <Link href="/dashboard">
-            <Button variant="outline">Kembali ke dashboard</Button>
-          </Link>
+        setIsSubmitting(true);
+
+        try {
+            // 1. Kirim data ke Backend (Groq + HeyGen)
+            const response = await fetch("http://localhost:5000/api/ai/generate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    topik: generatedPrompt, // Kita kirim prompt lengkap ini sebagai topik ke Groq
+                    avatar_id: formData.avatarId,
+                    voice_id: formData.voiceId
+                })
+            });
+
+            const json = await response.json();
+
+            if (!json.success) {
+                throw new Error(json.error || "Gagal membuat video di sisi server.");
+            }
+
+            // 2. Jika sukses, simpan ke local storage / database Anda
+            const videoItem: VideoItem & { heygenVideoId?: string } = {
+                id: `video-${Date.now()}`,
+                learnerName: formData.learnerName || 'Pembelajar',
+                topic: formData.topic || 'Topik belum ditentukan',
+                learningStyle: formData.learningStyle,
+                persona: formData.avatarId, // Menyimpan ID Avatar
+                duration: Number(formData.duration) || 3,
+                accentType: formData.voiceId, // Menyimpan ID Suara
+                generatedPrompt,
+                status: 'Processing', // Ubah status jadi Processing karena HeyGen butuh waktu
+                heygenVideoId: json.data.heygen_video_id, // Simpan ID dari HeyGen
+                createdAt: new Date().toLocaleString('id-ID', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                }),
+            };
+
+            saveVideo(videoItem);
+
+            // 3. Arahkan ke halaman Video Saya
+            router.push('/dashboard/my-videos');
+
+        } catch (error: any) {
+            console.error(error);
+            setErrorMsg(error.message || 'Terjadi kesalahan saat menghubungi server.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6 dark:from-slate-950 dark:to-slate-900">
+            <div className="mx-auto max-w-5xl space-y-6">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <p className="text-sm font-semibold uppercase tracking-[0.3em] text-blue-600">Buat video baru</p>
+                        <h1 className="text-3xl font-bold">Form pembuat video AI</h1>
+                    </div>
+                    <Link href="/dashboard">
+                        <Button variant="outline">Kembali ke dashboard</Button>
+                    </Link>
+                </div>
+
+                {errorMsg && (
+                    <div className="bg-red-50 text-red-600 p-4 rounded-md border border-red-200">
+                        {errorMsg}
+                    </div>
+                )}
+
+                <Card className="shadow-lg">
+                    <CardHeader>
+                        <CardTitle>Isi detail pembelajaran</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <form onSubmit={handleSubmit} className="grid gap-5 md:grid-cols-2">
+                            <div className="space-y-2">
+                                <Label htmlFor="learnerName">Nama pembelajar</Label>
+                                <Input id="learnerName" value={formData.learnerName} onChange={(e) => handleChange('learnerName', e.target.value)} placeholder="Contoh: Aisyah" required />
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="topic">Topik</Label>
+                                <Input id="topic" value={formData.topic} onChange={(e) => handleChange('topic', e.target.value)} placeholder="Contoh: Algoritma Sorting" required />
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label>Gaya belajar</Label>
+                                <Select value={formData.learningStyle} onValueChange={(value) => handleChange('learningStyle', value ?? '')}>
+                                    <SelectTrigger className="w-full">
+                                        <SelectValue placeholder="Pilih gaya belajar" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="visual">Visual</SelectItem>
+                                        <SelectItem value="auditory">Auditory</SelectItem>
+                                        <SelectItem value="kinesthetic">Kinesthetic</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="duration">Durasi video (menit)</Label>
+                                <Input id="duration" type="number" min="1" max="10" value={formData.duration} onChange={(e) => handleChange('duration', e.target.value)} required />
+                            </div>
+
+                            {/* DROPDOWN AVATAR HEYGEN DINAMIS */}
+                            <div className="space-y-2">
+                                <Label>Pilih Persona (Avatar)</Label>
+                                <Select disabled={isLoadingAssets} value={formData.avatarId} onValueChange={(value) => handleChange('avatarId', value ?? '')}>
+                                    <SelectTrigger className="w-full">
+                                        <SelectValue placeholder={isLoadingAssets ? "Memuat avatar..." : "Pilih wajah avatar"} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {avatars.map((avatar) => (
+                                            <SelectItem key={avatar.avatar_id} value={avatar.avatar_id}>
+                                                {avatar.avatar_name} ({avatar.gender})
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            {/* DROPDOWN SUARA HEYGEN DINAMIS */}
+                            <div className="space-y-2">
+                                <Label>Pilih Suara (Voice)</Label>
+                                <Select disabled={isLoadingAssets} value={formData.voiceId} onValueChange={(value) => handleChange('voiceId', value ?? '')}>
+                                    <SelectTrigger className="w-full">
+                                        <SelectValue placeholder={isLoadingAssets ? "Memuat suara..." : "Pilih suara bahasa Indonesia"} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {voices.map((voice) => (
+                                            <SelectItem key={voice.voice_id} value={voice.voice_id}>
+                                                {voice.name} ({voice.gender})
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="md:col-span-2 space-y-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/60">
+                                <Label>Instruksi yang akan dikirim ke AI</Label>
+                                <p className="text-sm text-slate-600 dark:text-slate-300">{generatedPrompt}</p>
+                            </div>
+
+                            <div className="md:col-span-2 flex justify-end">
+                                <Button type="submit" disabled={isSubmitting || isLoadingAssets} className="min-w-44 bg-blue-600 hover:bg-blue-700">
+                                    {isSubmitting ? 'Memproses AI...' : 'Buat video AI'}
+                                </Button>
+                            </div>
+                        </form>
+                    </CardContent>
+                </Card>
+            </div>
         </div>
-
-        <Card className="shadow-lg">
-          <CardHeader>
-            <CardTitle>Isi detail pembelajaran</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="grid gap-5 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="learnerName">Nama pembelajar</Label>
-                <Input id="learnerName" value={formData.learnerName} onChange={(e) => handleChange('learnerName', e.target.value)} placeholder="Contoh: Aisyah" />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="topic">Topik</Label>
-                <Input id="topic" value={formData.topic} onChange={(e) => handleChange('topic', e.target.value)} placeholder="Contoh: Algoritma Sorting" />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Gaya belajar</Label>
-                <Select value={formData.learningStyle} onValueChange={(value) => handleChange('learningStyle', value)}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Pilih gaya belajar" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="visual">Visual</SelectItem>
-                    <SelectItem value="auditory">Auditory</SelectItem>
-                    <SelectItem value="kinesthetic">Kinesthetic</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Persona</Label>
-                <Select value={formData.persona} onValueChange={(value) => handleChange('persona', value)}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Pilih persona" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="guru ramah">Guru ramah</SelectItem>
-                    <SelectItem value="mentor serius">Mentor serius</SelectItem>
-                    <SelectItem value="pengajar energik">Pengajar energik</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="duration">Durasi video (menit)</Label>
-                <Input id="duration" type="number" min="1" max="10" value={formData.duration} onChange={(e) => handleChange('duration', e.target.value)} />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Aksen</Label>
-                <Select value={formData.accentType} onValueChange={(value) => handleChange('accentType', value)}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Pilih aksen" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="British">British</SelectItem>
-                    <SelectItem value="American">American</SelectItem>
-                    <SelectItem value="Australian">Australian</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="md:col-span-2 space-y-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/60">
-                <Label>Prompt yang akan dibuat</Label>
-                <p className="text-sm text-slate-600 dark:text-slate-300">{generatedPrompt}</p>
-              </div>
-
-              <div className="md:col-span-2 flex justify-end">
-                <Button type="submit" disabled={isSubmitting} className="min-w-44">
-                  {isSubmitting ? 'Menyimpan...' : 'Buat video'}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
+    );
 }
+
