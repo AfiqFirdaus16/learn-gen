@@ -1,7 +1,8 @@
 import 'dotenv/config'; // Wajib di baris 1
 import express from 'express';
 import cors from 'cors';
-import authRoutes from './routes/auth.js'; // 1. Posisi import dipindah ke atas
+import authRoutes from './routes/auth.js';
+import aiRoutes from './routes/ai.js';
 
 // 2. Import untuk Driver Adapter Prisma
 import pg from 'pg';
@@ -39,6 +40,9 @@ app.get('/api/health', (req, res) => {
 
 // Menggunakan auth routes
 app.use('/api/auth', authRoutes);
+
+// Menggunakan AI routes
+app.use('/api/ai', aiRoutes); // <- Tambahkan baris ini
 
 // ==========================================
 // ERROR HANDLING
