@@ -12,7 +12,7 @@ import { saveVideo, type VideoItem } from '@/lib/video-storage';
 
 export default function CreateVideoPage() {
     const router = useRouter();
-
+    const [remainingCredit, setRemainingCredit] = useState<number | string>("...");
     // State Input Form
     const [formData, setFormData] = useState({
         learnerName: '',
@@ -32,32 +32,40 @@ export default function CreateVideoPage() {
 
     // Mengambil data Avatar & Voice dari Backend saat halaman dimuat
     useEffect(() => {
-        const fetchAssets = async () => {
+        const fetchAssetsAndQuota = async () => {
             try {
-                const response = await fetch("http://localhost:5000/api/ai/heygen-assets");
-                const json = await response.json();
+                // 1. Ambil Aset Avatar & Voice
+                const resAssets = await fetch("http://localhost:5000/api/ai/heygen-assets");
+                const jsonAssets = await resAssets.json();
 
-                if (json.success) {
-                    const fetchedAvatars = json.raw_avatars?.data?.avatars || [];
-                    const fetchedVoices = json.raw_voices?.data?.voices || [];
-
-                    // Filter hanya suara bahasa Indonesia
-                    const indoVoices = fetchedVoices.filter((v: any) =>
-                        v.language === "Indonesian" || v.language === "id-ID"
-                    );
-
+                if (jsonAssets.success) {
+                    const fetchedAvatars = jsonAssets.raw_avatars?.data?.avatars || [];
+                    const fetchedVoices = jsonAssets.raw_voices?.data?.voices || [];
+                    const indoVoices = fetchedVoices.filter((v: any) => v.language === "Indonesian" || v.language === "id-ID");
                     setAvatars(fetchedAvatars);
                     setVoices(indoVoices.length > 0 ? indoVoices : fetchedVoices);
                 }
+
+                // 2. Ambil Info Kuota
+                const resQuota = await fetch("http://localhost:5000/api/ai/heygen-quota");
+                const jsonQuota = await resQuota.json();
+
+                if (jsonQuota.success) {
+                    setRemainingCredit(jsonQuota.kredit_tersisa);
+                } else {
+                    setRemainingCredit("0"); // Fallback jika gagal
+                }
+
             } catch (err) {
-                console.error("Gagal memuat aset:", err);
-                setErrorMsg("Gagal memuat pilihan wajah dan suara dari server.");
+                console.error("Gagal memuat data dari server:", err);
+                setErrorMsg("Gagal terhubung ke server.");
+                setRemainingCredit("Error");
             } finally {
                 setIsLoadingAssets(false);
             }
         };
 
-        fetchAssets();
+        fetchAssetsAndQuota();
     }, []);
 
     // Membuat prompt dinamis yang akan dikirim ke Groq (Topik)
@@ -142,9 +150,18 @@ export default function CreateVideoPage() {
                         <p className="text-sm font-semibold uppercase tracking-[0.3em] text-blue-600">Buat video baru</p>
                         <h1 className="text-3xl font-bold">Form pembuat video AI</h1>
                     </div>
-                    <Link href="/dashboard">
-                        <Button variant="outline">Kembali ke dashboard</Button>
-                    </Link>
+                    <div className="flex items-center gap-4">
+                        {/* Lencana Sisa Kredit */}
+                        <div className="flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-400">
+                            <span className="text-lg">🪙</span>
+                            Sisa Kredit:
+                            <span className="font-bold">{remainingCredit}</span>
+                        </div>
+
+                        <Link href="/dashboard">
+                            <Button variant="outline">Kembali ke dashboard</Button>
+                        </Link>
+                    </div>
                 </div>
 
                 {errorMsg && (
