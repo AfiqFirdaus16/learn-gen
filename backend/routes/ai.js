@@ -107,7 +107,7 @@ router.post('/generate', async (req, res) => {
                 'Content-Type': 'application/json'
             }
         });
-        
+
         const videoId = heygenResponse.data.data.video_id;
 
         // 4. Mengembalikan hasil
@@ -164,6 +164,32 @@ router.get('/heygen-assets', async (req, res) => {
             success: false,
             error: "Gagal memuat daftar avatar dan suara",
             detail: error.response?.data || error.message
+        });
+    }
+});
+
+// ==========================================
+// ENDPOINT: CEK SISA KREDIT / KUOTA HEYGEN
+// ==========================================
+router.get('/heygen-quota', async (req, res) => {
+    try {
+        // HeyGen menyediakan endpoint khusus untuk mengecek batas akun (limits)
+        const quotaResponse = await axios.get('https://api.heygen.com/v2/user/info', {
+            headers: { 'X-Api-Key': process.env.HEYGEN_API_KEY }
+        });
+
+        // Struktur data dari HeyGen biasanya menyimpan sisa kredit di dalam properti tertentu
+        res.status(200).json({
+            success: true,
+            kredit_tersisa: quotaResponse.data.data.quota_left || 0,
+            total_kredit: quotaResponse.data.data.quota_total || 0
+        });
+
+    } catch (error) {
+        console.error("Gagal mengecek kuota HeyGen:", error.response?.data || error.message);
+        res.status(500).json({
+            success: false,
+            error: "Gagal memuat informasi kuota"
         });
     }
 });
