@@ -137,6 +137,23 @@ export default function DashboardPage() {
                         </CardContent>
                     </Card>
 
+                    {/* Personas Card */}
+                    <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <span className="text-2xl">🧑‍🏫</span> Persona
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <p className="text-sm text-muted-foreground">
+                                Buat profil pembelajar beserta gaya belajar, avatar, dan suara untuk video Anda.
+                            </p>
+                            <Link href="/dashboard/personas">
+                                <Button variant="outline" className="w-full border-2">Kelola Persona</Button>
+                            </Link>
+                        </CardContent>
+                    </Card>
+
                     {/* Settings Card */}
                     <Card className="hover:shadow-lg transition-shadow cursor-pointer">
                         <CardHeader>

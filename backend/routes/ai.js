@@ -117,7 +117,12 @@ router.post('/generate', async (req, res) => {
             data: {
                 topik: topik,
                 naskah_dari_groq: naskah,
-                heygen_video_id: videoId
+                heygen_video_id: videoId,
+                usage: {
+                    prompt_tokens: groqResponse.usage?.prompt_tokens || 0,
+                    completion_tokens: groqResponse.usage?.completion_tokens || 0,
+                    total_tokens: groqResponse.usage?.total_tokens || 0
+                }
             }
         });
 
