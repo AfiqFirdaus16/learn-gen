@@ -5,7 +5,8 @@ interface TokenUsageRecord {
   used: number;
 }
 
-const STORAGE_KEY = 'learn-gen-token-usage';
+// Versi baru dimulai dari nol agar catatan token lama dari preview Groq tidak terbawa.
+const STORAGE_KEY = 'learn-gen-token-usage-v2';
 
 function currentMonth() {
   const date = new Date();

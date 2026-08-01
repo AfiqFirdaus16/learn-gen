@@ -51,39 +51,68 @@ router.get('/check-connection', async (req, res) => {
 });
 
 // ==========================================
-// ENDPOINT UTAMA: GENERATE VIDEO PEMBELAJARAN
+// ENDPOINT: BUAT NASKAH SINGKAT HEYGEN DENGAN GROQ UNTUK DITINJAU PENGGUNA
 // ==========================================
-router.post('/generate', async (req, res) => {
+router.post('/generate-heygen-prompt', async (req, res) => {
     try {
-        // 1. Menangkap topik dan pilihan persona dari frontend
-        const { topik, avatar_id, voice_id } = req.body;
+        const { prompt } = req.body;
 
-        // Validasi input: pastikan semua data dikirim
-        if (!topik || !avatar_id || !voice_id) {
-            return res.status(400).json({
-                error: "Topik, Avatar, dan Suara wajib diisi!"
-            });
-        }
+        if (!prompt) return res.status(400).json({ success: false, error: 'Instruksi naskah wajib diisi.' });
 
-        // 2. PROSES GROQ AI: Membuat Naskah
         const groqResponse = await groq.chat.completions.create({
             messages: [
                 {
                     role: "system",
-                    content: "Anda adalah guru ahli yang bertugas membuat naskah video pembelajaran. Batasan: Maksimal 60 kata, gunakan bahasa Indonesia yang baku namun santai, jangan gunakan kalimat sapaan pembuka (seperti halo/selamat pagi), dan langsung jelaskan inti materinya saja."
+                    content: "You write educational video scripts for English learning. Create ONE clear English narration based on the user's instruction. Follow the requested approximate word count so the narration matches the selected video duration. Start with one concise opening sentence that introduces why the topic matters, then explain the lesson. The audience is students as a group; never mention a person's name or address one individual. Do not use generic greetings or openings such as welcome, do not mention HeyGen or any platform, do not introduce an avatar, and do not include narrator or visual directions in parentheses. Use plain text only: no title, quotes, Markdown, asterisks, bullets, emojis, or decorative characters. Return only the final English script."
                 },
                 {
                     role: "user",
-                    content: `Buat naskah video pembelajaran tentang: ${topik}`
+                    content: prompt
                 }
             ],
             model: "llama-3.1-8b-instant",
             temperature: 0.7,
         });
 
-        const naskah = groqResponse.choices[0]?.message?.content;
+        // Groq kadang tetap menambahkan label seperti "Prompt:"; label ini tidak perlu dikirim ke HeyGen.
+        const heygenPrompt = groqResponse.choices[0]?.message?.content
+            ?.trim()
+            .replace(/^(?:(?:prompt|naskah)(?:\s+(?:untuk|heygen))?\s*:\s*)/i, '')
+            .replace(/\([^)]*\)\s*/g, '')
+            .replace(/\bselamat\s+datang[^.!?]*[.!?]\s*/i, '')
+            .replace(/\bdi\s+heygen\b/gi, '')
+            .replace(/[*•#_`]/g, '');
+        if (!heygenPrompt) throw new Error('Groq tidak mengembalikan naskah.');
 
-        // 3. PROSES HEYGEN AI: Menggunakan Persona Pilihan User
+        return res.status(200).json({
+            success: true,
+            data: {
+                script: heygenPrompt,
+                usage: {
+                    prompt_tokens: groqResponse.usage?.prompt_tokens || 0,
+                    completion_tokens: groqResponse.usage?.completion_tokens || 0,
+                    total_tokens: groqResponse.usage?.total_tokens || 0
+                }
+            }
+        });
+    } catch (error) {
+        console.error("Generate HeyGen Script Error:", error.response?.data || error.message);
+        return res.status(500).json({ success: false, error: "Gagal membuat naskah HeyGen" });
+    }
+});
+
+// ==========================================
+// ENDPOINT UTAMA: GENERATE VIDEO DARI NASKAH YANG SUDAH DIKONFIRMASI
+// ==========================================
+router.post('/generate', async (req, res) => {
+    try {
+        const { script, avatar_id, voice_id } = req.body;
+
+        if (!script || !avatar_id || !voice_id) {
+            return res.status(400).json({ success: false, error: "Naskah, Avatar, dan Suara wajib diisi!" });
+        }
+
+        // PROSES HEYGEN AI: menggunakan naskah yang telah dikonfirmasi.
         const heygenResponse = await axios.post('https://api.heygen.com/v2/video/generate', {
             video_inputs: [
                 {
@@ -94,7 +123,7 @@ router.post('/generate', async (req, res) => {
                     },
                     voice: {
                         type: "text",
-                        input_text: naskah,
+                        input_text: script,
                         voice_id: voice_id // <- Menerima ID secara dinamis dari frontend
                     }
                 }
@@ -110,19 +139,12 @@ router.post('/generate', async (req, res) => {
 
         const videoId = heygenResponse.data.data.video_id;
 
-        // 4. Mengembalikan hasil
         res.status(200).json({
             success: true,
             message: "Proses pembuatan video berhasil dimulai!",
             data: {
-                topik: topik,
-                naskah_dari_groq: naskah,
-                heygen_video_id: videoId,
-                usage: {
-                    prompt_tokens: groqResponse.usage?.prompt_tokens || 0,
-                    completion_tokens: groqResponse.usage?.completion_tokens || 0,
-                    total_tokens: groqResponse.usage?.total_tokens || 0
-                }
+                naskah: script,
+                heygen_video_id: videoId
             }
         });
 
