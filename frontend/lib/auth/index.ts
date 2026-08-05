@@ -48,14 +48,13 @@ export const authenticatedFetch = async (
   options: RequestInit = {}
 ) => {
   const token = getToken();
-  const headers = {
-    'Content-Type': 'application/json',
-    ...options.headers,
-  };
+const headers: Record<string, string> = {
+  'Content-Type': 'application/json',
+};
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
+if (token) {
+  headers['Authorization'] = `Bearer ${token}`;
+}
 
   return fetch(url, {
     ...options,
