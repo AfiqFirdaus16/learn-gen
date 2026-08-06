@@ -4,11 +4,15 @@ export interface VideoItem {
   topic: string;
   learningStyle: string;
   persona: string;
+  personaId?: string;
   duration: number;
   accentType: string;
+  avatarId?: string;
   generatedPrompt: string;
   status: 'Pending' | 'Processing' | 'Completed' | 'Failed';
   createdAt: string;
+  failureReason?: string;
+  heygenVideoId?: string;
 }
 
 const STORAGE_KEY = 'learn-gen-videos';

@@ -150,10 +150,19 @@ router.post('/generate', async (req, res) => {
 
     } catch (error) {
         console.error("Generate Video Error:", error.response?.data || error.message);
+        const status = error.response?.status;
+        let failureReason = "Layanan pembuatan video sedang bermasalah. Silakan coba lagi beberapa saat lagi.";
+
+        if (status === 429) {
+            failureReason = "Batas permintaan atau kredit HeyGen telah tercapai. Periksa kuota akun Anda, lalu coba generate ulang.";
+        } else if (status === 401 || status === 403) {
+            failureReason = "Akses ke HeyGen ditolak. Periksa API key atau izin akun sebelum mencoba lagi.";
+        } else if (status === 400) {
+            failureReason = error.response?.data?.message || error.response?.data?.error?.message || "Data video tidak dapat diproses oleh HeyGen. Periksa naskah, avatar, dan suara lalu coba lagi.";
+        }
         res.status(500).json({
             success: false,
-            error: "Gagal memproses video pembelajaran",
-            detail: error.response?.data || error.message
+            error: failureReason
         });
     }
 });

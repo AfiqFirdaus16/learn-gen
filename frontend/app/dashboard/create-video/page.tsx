@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getStoredPersonas, type PersonaItem } from '@/lib/persona-storage';
 import { estimateTokens, getTokenUsage, MONTHLY_TOKEN_LIMIT, recordTokenUsage } from '@/lib/token-usage';
-import { saveVideo, type VideoItem } from '@/lib/video-storage';
+import { getStoredVideos, saveVideo, type VideoItem } from '@/lib/video-storage';
 import { saveConfirmedScript, updateConfirmedScriptStatus } from '@/lib/confirmed-script-storage';
 
 const styleLabels: Record<PersonaItem['learningStyle'], string> = { visual: 'Visual', auditory: 'Auditori', kinesthetic: 'Kinestetik', reading: 'Membaca & menulis' };
@@ -33,6 +33,7 @@ async function readApiJson(response: Response) {
 
 export default function CreateVideoPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [personas, setPersonas] = useState<PersonaItem[]>([]);
   const [selectedPersonaId, setSelectedPersonaId] = useState('');
   const [topic, setTopic] = useState('');
@@ -46,11 +47,23 @@ export default function CreateVideoPage() {
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
-      setPersonas(getStoredPersonas());
+      const storedPersonas = getStoredPersonas();
+      setPersonas(storedPersonas);
       setUsedTokens(getTokenUsage());
+
+      const retryId = searchParams.get('retry');
+      const retryVideo = retryId ? getStoredVideos().find((video) => video.id === retryId && video.status === 'Failed') : undefined;
+      if (retryVideo) {
+        const matchingPersona = storedPersonas.find((item) => item.id === retryVideo.personaId || item.name === retryVideo.persona);
+        setSelectedPersonaId(matchingPersona?.id || '');
+        setTopic(retryVideo.topic);
+        setDuration(String(retryVideo.duration));
+        setHeygenPrompt(retryVideo.generatedPrompt);
+        setIsConfirmed(true);
+      }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, []);
+  }, [searchParams]);
 
   const persona = personas.find((item) => item.id === selectedPersonaId);
   const durationMinutes = Math.min(10, Math.max(1, Number(duration) || 3));
@@ -93,6 +106,29 @@ export default function CreateVideoPage() {
     setErrorMsg('');
     if (!persona) return setErrorMsg('Pilih persona terlebih dahulu.');
     if (!heygenPrompt || !isConfirmed) return setErrorMsg('Tinjau dan konfirmasi naskah HeyGen sebelum membuat video.');
+    const createdAt = new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const createVideoAttempt = (status: VideoItem['status'], failureReason?: string, heygenVideoId?: string): VideoItem => ({
+      id: `video-${Date.now()}`,
+      learnerName: 'Murid',
+      topic: topic || 'Topik belum ditentukan',
+      learningStyle: persona.learningStyle,
+      persona: persona.name,
+      personaId: persona.id,
+      duration: Number(duration) || 3,
+      accentType: persona.voiceId,
+      avatarId: persona.avatarId,
+      generatedPrompt: heygenPrompt,
+      status,
+      failureReason,
+      heygenVideoId,
+      createdAt,
+    });
+    if (isOverLimit) {
+      const reason = `Kuota token tidak mencukupi. Estimasi kebutuhan ${estimatedTokens.toLocaleString('id-ID')} token, sedangkan sisa kuota ${remainingTokens.toLocaleString('id-ID')} token.`;
+      saveVideo(createVideoAttempt('Failed', reason));
+      setErrorMsg(reason);
+      return;
+    }
     setIsSubmitting(true);
     const confirmedScriptId = `script-${Date.now()}`;
     saveConfirmedScript({
@@ -109,12 +145,13 @@ export default function CreateVideoPage() {
       if (!json.success) throw new Error(json.error || 'Gagal membuat video di sisi server.');
       updateConfirmedScriptStatus(confirmedScriptId, 'Submitted');
       setUsedTokens(recordTokenUsage(estimatedTokens));
-      const video: VideoItem & { heygenVideoId?: string } = { id: `video-${Date.now()}`, learnerName: 'Murid', topic: topic || 'Topik belum ditentukan', learningStyle: persona.learningStyle, persona: persona.name, duration: Number(duration) || 3, accentType: persona.voiceId, generatedPrompt: heygenPrompt, status: 'Processing', heygenVideoId: json.data.heygen_video_id, createdAt: new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) };
-      saveVideo(video);
+      saveVideo(createVideoAttempt('Processing', undefined, json.data.heygen_video_id));
       router.push('/dashboard/my-videos');
     } catch (error: unknown) {
       updateConfirmedScriptStatus(confirmedScriptId, 'Failed');
-      setErrorMsg(error instanceof Error ? error.message : 'Terjadi kesalahan saat menghubungi server.');
+      const reason = error instanceof Error ? error.message : 'Terjadi kesalahan saat menghubungi server.';
+      saveVideo(createVideoAttempt('Failed', reason));
+      setErrorMsg(reason);
     } finally { setIsSubmitting(false); }
   }
 
