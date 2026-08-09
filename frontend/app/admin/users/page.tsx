@@ -35,6 +35,7 @@ export default function UsersPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const currentUser = getAdmin();
 
+  // Fungsi reusable untuk search, submit, dan delete
   const loadUsers = useCallback(async (query = '') => {
     setLoading(true);
     setError('');
@@ -52,7 +53,36 @@ export default function UsersPage() {
     }
   }, []);
 
-  useEffect(() => { void loadUsers(); }, [loadUsers]);
+  // Initial load dipindah ke dalam effect (tanpa memanggil fungsi yang mengandung setState secara sinkron)
+  useEffect(() => {
+    let cancelled = false;
+
+    async function initialLoad() {
+      setLoading(true);
+      setError('');
+      try {
+        const response = await authenticatedFetch(`${API_BASE_URL}/api/users`);
+        const data = await readResponse(response);
+        if (!cancelled) {
+          setUsers(data.users);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : 'Gagal memuat pengguna.');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void initialLoad();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const totals = useMemo(() => ({
     all: users.length,
