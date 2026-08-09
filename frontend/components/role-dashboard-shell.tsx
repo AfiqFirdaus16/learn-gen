@@ -10,21 +10,21 @@ type Role = 'admin' | 'dosen' | 'mahasiswa';
 const navigation = {
   admin: [
     { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
-    { label: 'Manage User', href: '/admin/users', icon: Users },
-    { label: 'Manage Materi', href: '/admin/materials', icon: BookOpen },
-    { label: 'Manage Test', href: '/admin/tests', icon: ClipboardCheck },
+    { label: 'Manajemen Pengguna', href: '/admin/users', icon: Users },
+    { label: 'Manajemen Materi', href: '/admin/materials', icon: BookOpen },
+    { label: 'Manajemen Tes', href: '/admin/tests', icon: ClipboardCheck },
   ],
   dosen: [
     { label: 'Dashboard', href: '/dosen', icon: LayoutDashboard },
     { label: 'Buat Materi', href: '/dosen/buat-materi', icon: Video },
     { label: 'Riwayat Materi', href: '/dosen/riwayat-materi', icon: ClipboardCheck },
-    { label: 'Set Materi', href: '/dosen/set-materi', icon: BookOpen },
-    { label: 'Set Test', href: '/dosen/set-test', icon: ClipboardCheck },
+    { label: 'Pengaturan Materi', href: '/dosen/set-materi', icon: BookOpen },
+    { label: 'Pengaturan Tes', href: '/dosen/set-test', icon: ClipboardCheck },
   ],
   mahasiswa: [
     { label: 'Dashboard', href: '/mahasiswa', icon: LayoutDashboard },
     { label: 'Materi', href: '/mahasiswa/materi', icon: BookOpen },
-    { label: 'Test', href: '/mahasiswa/test', icon: ClipboardCheck },
+    { label: 'Tes', href: '/mahasiswa/test', icon: ClipboardCheck },
   ],
 } as const;
 

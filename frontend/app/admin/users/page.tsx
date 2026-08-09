@@ -149,7 +149,7 @@ export default function UsersPage() {
 
   return <div className="space-y-6">
     <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-      <div><p className="text-sm font-semibold uppercase tracking-[0.25em] text-indigo-500">Administrasi</p><h1 className="mt-1 text-3xl font-bold text-slate-800">Manage User</h1><p className="mt-2 text-slate-500">Kelola akun admin, dosen, dan mahasiswa.</p></div>
+      <div><p className="text-sm font-semibold uppercase tracking-[0.25em] text-indigo-500">Administrasi</p><h1 className="mt-1 text-3xl font-bold text-slate-800">Manajemen Pengguna</h1><p className="mt-2 text-slate-500">Kelola akun admin, dosen, dan mahasiswa.</p></div>
       <button type="button" onClick={openCreate} className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"><Plus className="size-4" />Tambah pengguna</button>
     </div>
 
