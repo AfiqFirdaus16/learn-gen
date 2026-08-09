@@ -1,3 +1,10 @@
+export interface AuthUser {
+  id: number;
+  nama: string;
+  email: string;
+  role?: 'admin' | 'dosen' | 'mahasiswa';
+}
+
 // Get JWT Token
 export const getToken = (): string | null => {
   if (typeof window !== 'undefined') {
@@ -7,12 +14,12 @@ export const getToken = (): string | null => {
 };
 
 // Get Admin Data
-export const getAdmin = () => {
+export const getAdmin = (): AuthUser | null => {
   if (typeof window !== 'undefined') {
     const adminData = localStorage.getItem('admin');
     if (adminData) {
       try {
-        return JSON.parse(adminData);
+        return JSON.parse(adminData) as AuthUser;
       } catch {
         return null;
       }
@@ -35,7 +42,7 @@ export const logout = () => {
 };
 
 // Set Auth Data
-export const setAuthData = (token: string, admin: any) => {
+export const setAuthData = (token: string, admin: AuthUser) => {
   if (typeof window !== 'undefined') {
     localStorage.setItem('token', token);
     localStorage.setItem('admin', JSON.stringify(admin));

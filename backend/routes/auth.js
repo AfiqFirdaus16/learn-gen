@@ -29,7 +29,7 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // Cari admin berdasarkan email
+        // Tabel pengguna saat ini bernama Admin dan menyimpan seluruh peran.
         const admin = await prisma.admin.findUnique({
             where: { email },
         });
@@ -51,7 +51,7 @@ router.post('/login', async (req, res) => {
 
         // Generate JWT Token
         const token = jwt.sign(
-            { id: admin.id, email: admin.email, nama: admin.nama },
+            { id: admin.id, email: admin.email, nama: admin.nama, role: admin.role },
             process.env.JWT_SECRET || 'your-secret-key',
             { expiresIn: '24h' }
         );
@@ -64,6 +64,7 @@ router.post('/login', async (req, res) => {
                 id: admin.id,
                 nama: admin.nama,
                 email: admin.email,
+                role: admin.role,
             },
         });
     } catch (error) {
@@ -123,6 +124,7 @@ router.post('/register', async (req, res) => {
                 nama,
                 email,
                 password: hashedPassword,
+                role: 'mahasiswa',
             },
         });
 
@@ -133,6 +135,7 @@ router.post('/register', async (req, res) => {
                 id: newAdmin.id,
                 nama: newAdmin.nama,
                 email: newAdmin.email,
+                role: newAdmin.role,
             },
         });
     } catch (error) {
@@ -185,6 +188,7 @@ router.get('/me', verifyToken, async (req, res) => {
                 id: admin.id,
                 nama: admin.nama,
                 email: admin.email,
+                role: admin.role,
             },
         });
     } catch (error) {

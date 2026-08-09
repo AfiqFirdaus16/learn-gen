@@ -41,8 +41,8 @@ export default function LoginPage() {
             localStorage.setItem('token', data.token);
             localStorage.setItem('admin', JSON.stringify(data.admin));
 
-            // Redirect ke dashboard
-            router.push('/dashboard');
+            const roleRoutes: Record<string, string> = { admin: '/admin', dosen: '/dosen', mahasiswa: '/mahasiswa' };
+            router.push(roleRoutes[data.admin.role] || '/admin');
         } catch (err) {
             setError('Terjadi kesalahan. Silakan coba lagi.');
             console.error('Login error:', err);
