@@ -3,6 +3,8 @@ import express from 'express';
 import cors from 'cors';
 import authRoutes from './routes/auth.js';
 import aiRoutes from './routes/ai.js';
+import dashboardRoutes from './routes/dashboard.js';
+import videoRoutes from './routes/videos.js';
 
 // 2. Import untuk Driver Adapter Prisma
 import pg from 'pg';
@@ -43,6 +45,8 @@ app.use('/api/auth', authRoutes);
 
 // Menggunakan AI routes
 app.use('/api/ai', aiRoutes); // <- Tambahkan baris ini
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/videos', videoRoutes);
 
 // ==========================================
 // ERROR HANDLING

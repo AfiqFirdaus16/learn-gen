@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,7 @@ import { estimateTokens, getTokenUsage, MONTHLY_TOKEN_LIMIT, recordTokenUsage } 
 import { getStoredVideos, saveVideo, updateStoredVideo, type VideoItem } from '@/lib/video-storage';
 import { saveConfirmedScript, updateConfirmedScriptStatus } from '@/lib/confirmed-script-storage';
 import { API_BASE_URL } from '@/lib/api-config';
+import { authenticatedFetch } from '@/lib/auth';
 
 const styleLabels: Record<PersonaItem['learningStyle'], string> = { visual: 'Visual', auditory: 'Auditori', kinesthetic: 'Kinestetik', reading: 'Membaca & menulis' };
 const cleanScript = (value: string) => value
@@ -33,6 +34,22 @@ async function readApiJson(response: Response) {
 }
 
 export default function CreateVideoPage() {
+  return (
+    <Suspense fallback={<CreateVideoLoading />}>
+      <CreateVideoForm />
+    </Suspense>
+  );
+}
+
+function CreateVideoLoading() {
+  return (
+    <main className="min-h-screen bg-background px-6 py-12">
+      <div className="mx-auto max-w-6xl text-muted-foreground">Memuat formulir materi...</div>
+    </main>
+  );
+}
+
+function CreateVideoForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [personas, setPersonas] = useState<PersonaItem[]>([]);
@@ -146,10 +163,25 @@ export default function CreateVideoPage() {
       const response = await fetch(`${API_BASE_URL}/api/ai/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: heygenPrompt, avatar_id: persona.avatarId, voice_id: persona.voiceId }) });
       const json = await readApiJson(response);
       if (!json.success) throw new Error(json.error || 'Gagal membuat video di sisi server.');
+      const savedMaterial = await authenticatedFetch(`${API_BASE_URL}/api/videos`, {
+        method: 'POST',
+        body: JSON.stringify({
+          learnerName: 'Murid',
+          topic: topic || 'Topik belum ditentukan',
+          learningStyle: persona.learningStyle,
+          persona: persona.name,
+          duration: Number(duration) || 3,
+          accentType: persona.voiceId,
+          generatedPrompt: heygenPrompt,
+          heygenVideoId: json.data.heygen_video_id,
+          status: 'processing',
+        }),
+      });
+      await readApiJson(savedMaterial);
       updateConfirmedScriptStatus(confirmedScriptId, 'Submitted');
       setUsedTokens(recordTokenUsage(estimatedTokens));
       updateStoredVideo(attempt.id, { heygenVideoId: json.data.heygen_video_id });
-      router.push('/dashboard/my-videos');
+      router.push('/dosen/riwayat-materi');
     } catch (error: unknown) {
       updateConfirmedScriptStatus(confirmedScriptId, 'Failed');
       const reason = error instanceof Error ? error.message : 'Terjadi kesalahan saat menghubungi server.';

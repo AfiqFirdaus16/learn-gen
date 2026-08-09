@@ -55,13 +55,18 @@ export const authenticatedFetch = async (
   options: RequestInit = {}
 ) => {
   const token = getToken();
-const headers: Record<string, string> = {
-  'Content-Type': 'application/json',
-};
+  // HeadersInit can be a Headers instance, tuple array, or object. Normalizing it
+  // avoids indexing HeadersInit directly (the TypeScript error fixed in 15b9607)
+  // while still preserving any headers supplied by the caller.
+  const headers = new Headers(options.headers);
 
-if (token) {
-  headers['Authorization'] = `Bearer ${token}`;
-}
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
 
   return fetch(url, {
     ...options,
