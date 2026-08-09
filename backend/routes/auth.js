@@ -173,6 +173,14 @@ export const verifyToken = (req, res, next) => {
     }
 };
 
+// Hanya akun dengan peran admin yang boleh mengelola pengguna.
+export const requireAdmin = (req, res, next) => {
+    if (req.admin?.role !== 'admin') {
+        return res.status(403).json({ error: 'Akses hanya untuk admin' });
+    }
+    next();
+};
+
 // ==========================================
 // GET CURRENT ADMIN (Protected Route)
 // ==========================================
