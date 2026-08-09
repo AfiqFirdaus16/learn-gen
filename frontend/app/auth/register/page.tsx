@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import Link from 'next/link';
+import { API_BASE_URL } from '@/lib/api-config';
 
 export default function RegisterPage() {
     const router = useRouter();
@@ -35,7 +36,7 @@ export default function RegisterPage() {
         setIsLoading(true);
 
         try {
-            const response = await fetch('http://localhost:5000/api/auth/register', {
+            const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

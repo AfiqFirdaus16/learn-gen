@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { deletePersona, getStoredPersonas, savePersona, type LearningStyle, type PersonaItem } from '@/lib/persona-storage';
+import { API_BASE_URL } from '@/lib/api-config';
 
 const learningStyles: { value: LearningStyle; label: string; description: string }[] = [
   { value: 'visual', label: 'Visual', description: 'Mengutamakan diagram, warna, dan contoh visual.' },
@@ -36,7 +37,7 @@ export default function PersonasPage() {
     const frame = window.requestAnimationFrame(() => setPersonas(getStoredPersonas()));
     const loadAssets = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/ai/heygen-assets');
+        const response = await fetch(`${API_BASE_URL}/api/ai/heygen-assets`);
         const json = await response.json() as HeygenAssetsResponse;
         if (!json.success) throw new Error();
         const availableVoices = json.raw_voices?.data?.voices || [];

@@ -10,8 +10,9 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getStoredPersonas, type PersonaItem } from '@/lib/persona-storage';
 import { estimateTokens, getTokenUsage, MONTHLY_TOKEN_LIMIT, recordTokenUsage } from '@/lib/token-usage';
-import { getStoredVideos, saveVideo, type VideoItem } from '@/lib/video-storage';
+import { getStoredVideos, saveVideo, updateStoredVideo, type VideoItem } from '@/lib/video-storage';
 import { saveConfirmedScript, updateConfirmedScriptStatus } from '@/lib/confirmed-script-storage';
+import { API_BASE_URL } from '@/lib/api-config';
 
 const styleLabels: Record<PersonaItem['learningStyle'], string> = { visual: 'Visual', auditory: 'Auditori', kinesthetic: 'Kinestetik', reading: 'Membaca & menulis' };
 const cleanScript = (value: string) => value
@@ -90,7 +91,7 @@ export default function CreateVideoPage() {
     if (!topic.trim()) return setErrorMsg('Isi topik sebelum menyiapkan prompt HeyGen.');
     if (isOverLimit) return setErrorMsg(`Token tidak mencukupi. Estimasi kebutuhan ${estimatedTokens.toLocaleString('id-ID')} token; sisa kuota ${remainingTokens.toLocaleString('id-ID')} token.`);
     setIsCreatingPrompt(true);
-    fetch('http://localhost:5000/api/ai/generate-heygen-prompt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) })
+    fetch(`${API_BASE_URL}/api/ai/generate-heygen-prompt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) })
       .then(readApiJson)
       .then((json) => {
         if (!json.success) throw new Error(json.error || 'Gagal membuat naskah HeyGen.');
@@ -130,6 +131,8 @@ export default function CreateVideoPage() {
       return;
     }
     setIsSubmitting(true);
+    const attempt = createVideoAttempt('Processing');
+    saveVideo(attempt);
     const confirmedScriptId = `script-${Date.now()}`;
     saveConfirmedScript({
       id: confirmedScriptId,
@@ -140,17 +143,17 @@ export default function CreateVideoPage() {
       createdAt: new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
     });
     try {
-      const response = await fetch('http://localhost:5000/api/ai/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: heygenPrompt, avatar_id: persona.avatarId, voice_id: persona.voiceId }) });
+      const response = await fetch(`${API_BASE_URL}/api/ai/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: heygenPrompt, avatar_id: persona.avatarId, voice_id: persona.voiceId }) });
       const json = await readApiJson(response);
       if (!json.success) throw new Error(json.error || 'Gagal membuat video di sisi server.');
       updateConfirmedScriptStatus(confirmedScriptId, 'Submitted');
       setUsedTokens(recordTokenUsage(estimatedTokens));
-      saveVideo(createVideoAttempt('Processing', undefined, json.data.heygen_video_id));
+      updateStoredVideo(attempt.id, { heygenVideoId: json.data.heygen_video_id });
       router.push('/dashboard/my-videos');
     } catch (error: unknown) {
       updateConfirmedScriptStatus(confirmedScriptId, 'Failed');
       const reason = error instanceof Error ? error.message : 'Terjadi kesalahan saat menghubungi server.';
-      saveVideo(createVideoAttempt('Failed', reason));
+      updateStoredVideo(attempt.id, { status: 'Failed', failureReason: reason });
       setErrorMsg(reason);
     } finally { setIsSubmitting(false); }
   }

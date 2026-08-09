@@ -41,6 +41,16 @@ export function saveVideo(video: VideoItem): VideoItem[] {
   return next;
 }
 
+export function updateStoredVideo(id: string, updates: Partial<VideoItem>): VideoItem[] {
+  const next = getStoredVideos().map((video) => video.id === id ? { ...video, ...updates } : video);
+
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  }
+
+  return next;
+}
+
 export function clearStoredVideos() {
   if (typeof window !== 'undefined') {
     window.localStorage.removeItem(STORAGE_KEY);

@@ -1,9 +1,13 @@
-const API_BASE_URL = 'http://localhost:5000/api';
+import { API_BASE_URL as apiOrigin } from './api-config';
+
+const API_BASE_URL = `${apiOrigin}/api`;
+
+type ApiPayload = Record<string, unknown>;
 
 export const apiCall = async (
   endpoint: string,
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
-  data?: any
+  data?: ApiPayload
 ) => {
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
@@ -51,7 +55,7 @@ export const authAPI = {
 };
 
 export const videoAPI = {
-  createVideo: (videoData: any) =>
+  createVideo: (videoData: ApiPayload) =>
     apiCall('/videos', 'POST', videoData),
 
   getVideos: () => apiCall('/videos', 'GET'),
