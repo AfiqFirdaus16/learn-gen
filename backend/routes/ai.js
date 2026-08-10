@@ -51,13 +51,31 @@ router.get('/check-connection', async (req, res) => {
 });
 
 // ==========================================
-// ENDPOINT: BUAT NASKAH SINGKAT HEYGEN DENGAN GROQ UNTUK DITINJAU PENGGUNA
+// ENDPOINT: BUAT NASKAH VIDEO DARI BRIEF LENGKAP UNTUK DITINJAU PENGGUNA
 // ==========================================
 router.post('/generate-heygen-prompt', async (req, res) => {
     try {
-        const { prompt } = req.body;
+        const { videoConfig } = req.body;
 
-        if (!prompt) return res.status(400).json({ success: false, error: 'Instruksi naskah wajib diisi.' });
+        if (!videoConfig?.topic || !videoConfig?.persona || !videoConfig?.duration) {
+            return res.status(400).json({ success: false, error: 'Data persona, durasi, dan materi wajib diisi.' });
+        }
+
+        // Brief lengkap ini adalah prompt yang dikirim ke Groq. Naskah hasilnya
+        // tetap dipisahkan agar pengguna hanya dapat mengedit naskah video.
+        const groqPrompt = [
+            'Video learning brief:',
+            `Material/topic: ${videoConfig.topic}`,
+            `Persona: ${videoConfig.persona}`,
+            `Student level: ${videoConfig.level}`,
+            `Learning style: ${videoConfig.learningStyle}`,
+            `Teaching tone: ${videoConfig.tone}`,
+            `Video duration: ${videoConfig.duration} minute(s)`,
+            `Target narration length: approximately ${videoConfig.targetWordCount} words`,
+            `Presenter avatar: ${videoConfig.avatarName}`,
+            `Voice: ${videoConfig.voiceName}`,
+            videoConfig.notes ? `Additional notes: ${videoConfig.notes}` : '',
+        ].filter(Boolean).join('\n');
 
         const groqResponse = await groq.chat.completions.create({
             messages: [
@@ -67,7 +85,7 @@ router.post('/generate-heygen-prompt', async (req, res) => {
                 },
                 {
                     role: "user",
-                    content: prompt
+                    content: groqPrompt
                 }
             ],
             model: "llama-3.1-8b-instant",
@@ -106,13 +124,14 @@ router.post('/generate-heygen-prompt', async (req, res) => {
 // ==========================================
 router.post('/generate', async (req, res) => {
     try {
-        const { script, avatar_id, voice_id } = req.body;
+        const { script, avatar_id, voice_id, full_prompt: fullPrompt } = req.body;
 
         if (!script || !avatar_id || !voice_id) {
             return res.status(400).json({ success: false, error: "Naskah, Avatar, dan Suara wajib diisi!" });
         }
 
-        // PROSES HEYGEN AI: menggunakan naskah yang telah dikonfirmasi.
+        // HeyGen membacakan input_text, jadi hanya naskah final yang dikirim ke
+        // kolom suara. Prompt lengkap disimpan aplikasi sebagai catatan audit.
         const heygenResponse = await axios.post('https://api.heygen.com/v2/video/generate', {
             video_inputs: [
                 {
@@ -144,6 +163,7 @@ router.post('/generate', async (req, res) => {
             message: "Proses pembuatan video berhasil dimulai!",
             data: {
                 naskah: script,
+                full_prompt: fullPrompt,
                 heygen_video_id: videoId
             }
         });

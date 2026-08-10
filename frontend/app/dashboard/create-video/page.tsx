@@ -16,6 +16,23 @@ import { API_BASE_URL } from '@/lib/api-config';
 import { authenticatedFetch } from '@/lib/auth';
 
 const styleLabels: Record<PersonaItem['learningStyle'], string> = { visual: 'Visual', auditory: 'Auditori', kinesthetic: 'Kinestetik', reading: 'Membaca & menulis' };
+function buildFullVideoPrompt({ persona, topic, duration, script }: { persona: PersonaItem; topic: string; duration: number; script: string }) {
+  return [
+    'VIDEO GENERATION PROMPT',
+    `Materi: ${topic || 'Topik belum ditentukan'}`,
+    `Persona: ${persona.name}`,
+    `Level audiens: ${persona.level}`,
+    `Gaya belajar: ${styleLabels[persona.learningStyle]}`,
+    `Nada penyampaian: ${persona.tone}`,
+    `Durasi: ${duration} menit`,
+    `Target presenter/avatar: ${persona.avatarName} (${persona.avatarId})`,
+    `Suara: ${persona.voiceName} (${persona.voiceId})`,
+    persona.notes ? `Catatan persona: ${persona.notes}` : '',
+    '',
+    'NASKAH VIDEO:',
+    script.trim(),
+  ].filter(Boolean).join('\n');
+}
 const cleanScript = (value: string) => value
   .replace(/^(?:(?:prompt|naskah)(?:\s+(?:untuk|heygen))?\s*:\s*)/i, '')
   .replace(/\([^)]*\)\s*/g, '')
@@ -76,7 +93,7 @@ function CreateVideoForm() {
         setSelectedPersonaId(matchingPersona?.id || '');
         setTopic(retryVideo.topic);
         setDuration(String(retryVideo.duration));
-        setHeygenPrompt(retryVideo.generatedPrompt);
+        setHeygenPrompt(retryVideo.script || retryVideo.generatedPrompt);
         setIsConfirmed(true);
       }
     });
@@ -86,11 +103,7 @@ function CreateVideoForm() {
   const persona = personas.find((item) => item.id === selectedPersonaId);
   const durationMinutes = Math.min(10, Math.max(1, Number(duration) || 3));
   const targetWordCount = durationMinutes * 110;
-  const prompt = useMemo(() => {
-    if (!persona) return 'Pilih persona terlebih dahulu untuk melihat instruksi video.';
-    const notes = persona.notes ? ` Perhatian khusus: ${persona.notes}.` : '';
-    return `Create an English-learning video script about ${topic || 'the selected topic'} for ${persona.level}-level students. Use a ${styleLabels[persona.learningStyle].toLowerCase()} learning approach and a ${persona.tone} tone. Address students as a group, never one individual. The lesson lasts ${durationMinutes} minute${durationMinutes > 1 ? 's' : ''}; write approximately ${targetWordCount} words.${notes}`;
-  }, [durationMinutes, persona, targetWordCount, topic]);
+  const prompt = useMemo(() => persona ? buildFullVideoPrompt({ persona, topic, duration: durationMinutes, script: 'Naskah akan dibuat oleh Groq AI.' }) : '', [durationMinutes, persona, topic]);
   const estimatedTokens = persona ? estimateTokens(prompt) + Math.ceil(targetWordCount * 1.3) : 0;
   const remainingTokens = Math.max(0, MONTHLY_TOKEN_LIMIT - usedTokens);
   const usagePercent = Math.min(100, usedTokens / MONTHLY_TOKEN_LIMIT * 100);
@@ -108,7 +121,7 @@ function CreateVideoForm() {
     if (!topic.trim()) return setErrorMsg('Isi topik sebelum menyiapkan prompt HeyGen.');
     if (isOverLimit) return setErrorMsg(`Token tidak mencukupi. Estimasi kebutuhan ${estimatedTokens.toLocaleString('id-ID')} token; sisa kuota ${remainingTokens.toLocaleString('id-ID')} token.`);
     setIsCreatingPrompt(true);
-    fetch(`${API_BASE_URL}/api/ai/generate-heygen-prompt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) })
+    fetch(`${API_BASE_URL}/api/ai/generate-heygen-prompt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ videoConfig: { topic, persona: persona.name, level: persona.level, learningStyle: styleLabels[persona.learningStyle], tone: persona.tone, duration: durationMinutes, targetWordCount, avatarName: persona.avatarName, voiceName: persona.voiceName, notes: persona.notes } }) })
       .then(readApiJson)
       .then((json) => {
         if (!json.success) throw new Error(json.error || 'Gagal membuat naskah HeyGen.');
@@ -125,6 +138,7 @@ function CreateVideoForm() {
     if (!persona) return setErrorMsg('Pilih persona terlebih dahulu.');
     if (!heygenPrompt || !isConfirmed) return setErrorMsg('Tinjau dan konfirmasi naskah HeyGen sebelum membuat video.');
     const createdAt = new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const fullPrompt = buildFullVideoPrompt({ persona, topic, duration: Number(duration) || 3, script: heygenPrompt });
     const createVideoAttempt = (status: VideoItem['status'], failureReason?: string, heygenVideoId?: string): VideoItem => ({
       id: `video-${Date.now()}`,
       learnerName: 'Murid',
@@ -135,7 +149,8 @@ function CreateVideoForm() {
       duration: Number(duration) || 3,
       accentType: persona.voiceId,
       avatarId: persona.avatarId,
-      generatedPrompt: heygenPrompt,
+      script: heygenPrompt,
+      generatedPrompt: fullPrompt,
       status,
       failureReason,
       heygenVideoId,
@@ -160,7 +175,7 @@ function CreateVideoForm() {
       createdAt: new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
     });
     try {
-      const response = await fetch(`${API_BASE_URL}/api/ai/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: heygenPrompt, avatar_id: persona.avatarId, voice_id: persona.voiceId }) });
+      const response = await fetch(`${API_BASE_URL}/api/ai/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: heygenPrompt, avatar_id: persona.avatarId, voice_id: persona.voiceId, full_prompt: fullPrompt }) });
       const json = await readApiJson(response);
       if (!json.success) throw new Error(json.error || 'Gagal membuat video di sisi server.');
       const savedMaterial = await authenticatedFetch(`${API_BASE_URL}/api/videos`, {
@@ -172,7 +187,7 @@ function CreateVideoForm() {
           persona: persona.name,
           duration: Number(duration) || 3,
           accentType: persona.voiceId,
-          generatedPrompt: heygenPrompt,
+          generatedPrompt: fullPrompt,
           heygenVideoId: json.data.heygen_video_id,
           status: 'processing',
         }),

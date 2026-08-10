@@ -8,6 +8,7 @@ export interface VideoItem {
   duration: number;
   accentType: string;
   avatarId?: string;
+  script: string;
   generatedPrompt: string;
   status: 'Pending' | 'Processing' | 'Completed' | 'Failed';
   createdAt: string;
