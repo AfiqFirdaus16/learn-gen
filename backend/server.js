@@ -73,3 +73,12 @@ process.on('SIGINT', async () => {
     await prisma.$disconnect();
     process.exit(0);
 });
+
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(PORT, () => {
+        console.log(`Server berjalan di komputer lokal pada port ${PORT}`);
+    });
+}
+
+// Ekspor untuk Vercel menggunakan sintaks ES Module
+export default app;
