@@ -8,22 +8,31 @@ datasource db {
   provider = "postgresql"
 }
 
+// Definisikan Enum untuk Peran Pengguna (Lebih aman dari sekadar String)
+enum Role {
+  ADMIN
+  DOSEN
+  MAHASISWA
+}
+
 // ==========================================
 // RANCANGAN TABEL DATABASE
 // ==========================================
 
-model Admin {
+// Model Admin diubah menjadi User karena mencakup banyak peran
+model User {
   // Primary Key: ID unik yang dibuat otomatis
   id        Int      @id @default(autoincrement())
   
-  // Data Profil Admin
+  // Data Profil Pengguna
   nama      String
   email     String   @unique 
   password  String   
-  role      String   @default("admin") // admin, dosen, mahasiswa
+  role      Role     @default(MAHASISWA) 
   
   // Relasi
   videos    Video[]
+  materi    Materi[] // Relasi tambahan untuk Dosen/Admin membuat materi
   
   // Pelacakan Waktu (Audit Trail)
   createdAt DateTime @default(now()) 
@@ -32,30 +41,62 @@ model Admin {
 
 model Video {
   // Primary Key
-  id        Int      @id @default(autoincrement())
+  id              Int      @id @default(autoincrement())
   
-  // Foreign Key
-  adminId   Int
-  admin     Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  // Foreign Key (Diperbarui mengarah ke User, bukan Admin)
+  userId          Int
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   // Data Pembelajaran
-  learnerName      String
-  topic            String
-  learningStyle    String  // visual, auditory, kinesthetic, dll
-  persona          String  // guru ramah, mentor serius, dll
-  duration         Int     // dalam menit
-  accentType       String  // British, American, dll
+  learnerName     String
+  topic           String
+  learningStyle   String  // visual, auditory, kinesthetic, dll
+  persona         String  // guru ramah, mentor serius, dll
+  duration        Int     // dalam menit
+  accentType      String  // British, American, dll
   
   // Generated Data
-  generatedPrompt  String?  @db.Text
-  heygenVideoId    String?  @unique
-  videoUrl         String?
+  generatedPrompt String?  @db.Text
+  heygenVideoId   String?  @unique
+  videoUrl        String?
   
   // Status
-  status           String   @default("pending") // pending, processing, completed, failed
+  status          String   @default("pending") // pending, processing, completed, failed
   
   // Metadata
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  completedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  completedAt     DateTime?
+}
+
+// ==========================================
+// TABEL TAMBAHAN BERDASARKAN PEMBARUAN UI
+// ==========================================
+
+model Materi {
+  id        Int      @id @default(autoincrement())
+  judul     String
+  deskripsi String?
+  
+  // Relasi ke pembuat (Dosen/Admin)
+  authorId  Int
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Test {
+  id        Int      @id @default(autoincrement())
+  judul     String
+  status    String   @default("BERJALAN") // Bisa menggunakan enum juga ke depannya
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Kelas {
+  id        Int      @id @default(autoincrement())
+  namaKelas String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

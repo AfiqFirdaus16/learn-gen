@@ -1,7 +1,7 @@
-import 'dotenv/config'; // Wajib di baris 1
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import authRoutes from './routes/auth.js';
+import authRoutes, { ensureDefaultAdmin } from './routes/auth.js';
 import aiRoutes from './routes/ai.js';
 import userRoutes from './routes/users.js';
 import dashboardRoutes from './routes/dashboard.js';
@@ -12,8 +12,6 @@ import pg from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import pkg from '@prisma/client';
 
-
-
 const app = express();
 
 // 3. Inisialisasi Prisma menggunakan Adapter Postgres
@@ -23,13 +21,25 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
-// 4. Deklarasi PORT cukup satu kali saja di sini
 const PORT = process.env.PORT || 5000;
+
+await ensureDefaultAdmin();
 
 // ==========================================
 // MIDDLEWARE
 // ==========================================
-app.use(cors());
+
+// PERBAIKAN 1: Mengatur CORS agar mengizinkan Vercel dan Localhost
+app.use(cors({
+    origin: [
+        'http://localhost:3000', // Untuk testing lokal
+        'https://learn-gen-ufpz.vercel.app' // URL Frontend Vercel Anda
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
 
 // ==========================================
@@ -45,7 +55,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 
 // Menggunakan AI routes
-app.use('/api/ai', aiRoutes); // <- Tambahkan baris ini
+app.use('/api/ai', aiRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/videos', videoRoutes);
@@ -64,9 +74,6 @@ app.use((err, req, res, next) => {
 // ==========================================
 // SERVER START
 // ==========================================
-app.listen(PORT, () => {
-    console.log(`Server berhasil berjalan di port ${PORT}`);
-});
 
 // Graceful Shutdown
 process.on('SIGINT', async () => {
@@ -74,6 +81,8 @@ process.on('SIGINT', async () => {
     process.exit(0);
 });
 
+// PERBAIKAN 2: Menghapus app.listen ganda (agar tidak EADDRINUSE error di lokal)
+// Hanya jalankan app.listen jika TIDAK di environment Vercel (production)
 if (process.env.NODE_ENV !== 'production') {
     app.listen(PORT, () => {
         console.log(`Server berjalan di komputer lokal pada port ${PORT}`);

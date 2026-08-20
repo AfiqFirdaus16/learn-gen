@@ -1,4 +1,4 @@
-import 'dotenv/config'; // Tambahkan ini di baris 1 auth.js
+import 'dotenv/config';
 import express from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
@@ -9,39 +9,69 @@ import pkg from '@prisma/client';
 const { Pool } = pg;
 const { PrismaClient } = pkg;
 
-// Konfigurasi koneksi Adapter PostgreSQL
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 const router = express.Router();
 
-// ==========================================
-// LOGIN ENDPOINT
-// ==========================================
+const DEFAULT_ADMIN_EMAIL = 'admin@gmail.com';
+const DEFAULT_ADMIN_PASSWORD = 'password';
+
+const normalizeRole = (role) => {
+    const normalized = String(role ?? 'MAHASISWA').trim().toUpperCase();
+    if (['ADMIN', 'DOSEN', 'MAHASISWA'].includes(normalized)) {
+        return normalized;
+    }
+    return 'MAHASISWA';
+};
+
+export const ensureDefaultAdmin = async () => {
+    const email = DEFAULT_ADMIN_EMAIL.toLowerCase();
+    const existingAdmin = await prisma.user.findUnique({ where: { email } });
+
+    if (existingAdmin) {
+        if (existingAdmin.role !== 'ADMIN') {
+            await prisma.user.update({
+                where: { id: existingAdmin.id },
+                data: { role: 'ADMIN' },
+            });
+        }
+        return;
+    }
+
+    await prisma.user.create({
+        data: {
+            nama: 'Admin',
+            email,
+            password: await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10),
+            role: 'ADMIN',
+        },
+    });
+};
+
 router.post('/login', async (req, res) => {
     try {
+        await ensureDefaultAdmin();
+
         const { email, password } = req.body;
 
-        // Validasi input
         if (!email || !password) {
             return res.status(400).json({
                 error: 'Email dan password harus diisi'
             });
         }
 
-        // Tabel pengguna saat ini bernama Admin dan menyimpan seluruh peran.
-        const admin = await prisma.admin.findUnique({
-            where: { email },
+        const user = await prisma.user.findUnique({
+            where: { email: String(email).trim().toLowerCase() },
         });
 
-        if (!admin) {
+        if (!user) {
             return res.status(401).json({
                 error: 'Email atau password salah'
             });
         }
 
-        // Verifikasi password
-        const isPasswordValid = await bcrypt.compare(password, admin.password);
+        const isPasswordValid = await bcrypt.compare(password, user.password);
 
         if (!isPasswordValid) {
             return res.status(401).json({
@@ -49,9 +79,8 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // Generate JWT Token
         const token = jwt.sign(
-            { id: admin.id, email: admin.email, nama: admin.nama, role: admin.role },
+            { id: user.id, email: user.email, nama: user.nama, role: user.role },
             process.env.JWT_SECRET || 'your-secret-key',
             { expiresIn: '24h' }
         );
@@ -60,11 +89,11 @@ router.post('/login', async (req, res) => {
             success: true,
             message: 'Login berhasil',
             token,
-            admin: {
-                id: admin.id,
-                nama: admin.nama,
-                email: admin.email,
-                role: admin.role,
+            user: {
+                id: user.id,
+                nama: user.nama,
+                email: user.email,
+                role: user.role,
             },
         });
     } catch (error) {
@@ -76,66 +105,66 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// ==========================================
-// REGISTER ENDPOINT (untuk development)
-// ==========================================
 router.post('/register', async (req, res) => {
     try {
-        const { nama, email, password, confirmPassword } = req.body;
+        await ensureDefaultAdmin();
 
-        // Validasi input
+        const { nama, email, password, confirmPassword, role } = req.body;
+
         if (!nama || !email || !password || !confirmPassword) {
             return res.status(400).json({
                 error: 'Semua field harus diisi'
             });
         }
 
-        // Validasi password match
         if (password !== confirmPassword) {
             return res.status(400).json({
                 error: 'Password dan konfirmasi password tidak cocok'
             });
         }
 
-        // Validasi password strength
         if (password.length < 6) {
             return res.status(400).json({
                 error: 'Password minimal 6 karakter'
             });
         }
 
-        // Cek email sudah terdaftar
-        const existingAdmin = await prisma.admin.findUnique({
-            where: { email },
+        const normalizedRole = normalizeRole(role);
+        if (normalizedRole === 'ADMIN') {
+            return res.status(403).json({
+                error: 'Akun admin tidak bisa dibuat melalui register.'
+            });
+        }
+
+        const normalizedEmail = String(email).trim().toLowerCase();
+        const existingUser = await prisma.user.findUnique({
+            where: { email: normalizedEmail },
         });
 
-        if (existingAdmin) {
+        if (existingUser) {
             return res.status(409).json({
                 error: 'Email sudah terdaftar'
             });
         }
 
-        // Hash password
         const hashedPassword = await bcrypt.hash(password, 10);
-
-        // Buat admin baru
-        const newAdmin = await prisma.admin.create({
+        const newUser = await prisma.user.create({
             data: {
-                nama,
-                email,
+                nama: String(nama).trim(),
+                email: normalizedEmail,
                 password: hashedPassword,
-                role: 'mahasiswa',
+                role: normalizedRole,
             },
         });
 
         res.status(201).json({
             success: true,
             message: 'Registrasi berhasil',
-            admin: {
-                id: newAdmin.id,
-                nama: newAdmin.nama,
-                email: newAdmin.email,
-                role: newAdmin.role,
+            user: {
+                id: newUser.id,
+                nama: newUser.nama,
+                email: newUser.email,
+                role: newUser.role,
             },
         });
     } catch (error) {
@@ -147,9 +176,8 @@ router.post('/register', async (req, res) => {
     }
 });
 
-// ==========================================
-// VERIFY TOKEN MIDDLEWARE
-// ==========================================
+// --- UBAH req.admin MENJADI req.user ---
+
 export const verifyToken = (req, res, next) => {
     const token = req.headers.authorization?.split(' ')[1];
 
@@ -164,7 +192,8 @@ export const verifyToken = (req, res, next) => {
             token,
             process.env.JWT_SECRET || 'your-secret-key'
         );
-        req.admin = decoded;
+        // PERBAIKAN: Simpan payload ke req.user, bukan req.admin
+        req.user = decoded;
         next();
     } catch (error) {
         return res.status(401).json({
@@ -173,30 +202,32 @@ export const verifyToken = (req, res, next) => {
     }
 };
 
-// Hanya akun dengan peran admin yang boleh mengelola pengguna.
 export const requireAdmin = (req, res, next) => {
-    if (req.admin?.role !== 'admin') {
+    // PERBAIKAN: Pengecekan menggunakan req.user
+    if (req.user?.role !== 'ADMIN') {
         return res.status(403).json({ error: 'Akses hanya untuk admin' });
     }
     next();
 };
 
-// ==========================================
-// GET CURRENT ADMIN (Protected Route)
-// ==========================================
 router.get('/me', verifyToken, async (req, res) => {
     try {
-        const admin = await prisma.admin.findUnique({
-            where: { id: req.admin.id },
+        const user = await prisma.user.findUnique({
+            // PERBAIKAN: Pencarian ID menggunakan req.user.id
+            where: { id: req.user.id },
         });
+
+        if (!user) {
+            return res.status(404).json({ error: 'Pengguna tidak ditemukan' });
+        }
 
         res.status(200).json({
             success: true,
-            admin: {
-                id: admin.id,
-                nama: admin.nama,
-                email: admin.email,
-                role: admin.role,
+            user: {
+                id: user.id,
+                nama: user.nama,
+                email: user.email,
+                role: user.role,
             },
         });
     } catch (error) {

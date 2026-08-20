@@ -13,18 +13,16 @@ const router = express.Router();
 
 router.get('/stats', verifyToken, async (req, res) => {
   try {
-    const user = await prisma.admin.findUnique({ where: { id: req.admin.id } });
+    const user = await prisma.user.findUnique({ where: { id: req.admin.id } });
     if (!user) return res.status(401).json({ error: 'Pengguna tidak ditemukan.' });
 
     const [activeUsers, availableMaterials, createdMaterials, registeredStudents] = await Promise.all([
-      prisma.admin.count(),
+      prisma.user.count(),
       prisma.video.count({ where: { status: { not: 'failed' } } }),
-      prisma.video.count({ where: { adminId: user.id, status: { not: 'failed' } } }),
-      prisma.admin.count({ where: { role: 'mahasiswa' } }),
+      prisma.video.count({ where: { userId: user.id, status: { not: 'failed' } } }),
+      prisma.user.count({ where: { role: 'MAHASISWA' } }),
     ]);
 
-    // Semua metrik dikirim agar setiap dashboard peran memakai nama data yang konsisten.
-    // Test, kelas, penyelesaian materi, dan nilai akan bernilai 0 hingga tabel fiturnya dibuat.
     const stats = {
       activeUsers,
       materials: availableMaterials,
