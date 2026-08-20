@@ -95,7 +95,22 @@ router.post('/login', async (req, res) => {
                 email: user.email,
                 role: user.role,
             },
+            // Compatibility for frontend which expects `admin`
+            admin: {
+                id: user.id,
+                nama: user.nama,
+                email: user.email,
+                role: String(user.role).toLowerCase(),
+            },
         });
+
+        // Compatibility: some frontend code expects an `admin` object
+        // with a lowercased `role` property. Provide it as well.
+        // NOTE: keep the original `user` key for API correctness.
+        // (This helps the existing frontend continue to work without changes.)
+        // We send the `admin` object after the main response body above
+        // by repeating the json payload (Express will ignore subsequent
+        // res.json calls), so instead we include `admin` in the same payload.
     } catch (error) {
         console.error('Login error:', error);
         res.status(500).json({
@@ -165,6 +180,12 @@ router.post('/register', async (req, res) => {
                 nama: newUser.nama,
                 email: newUser.email,
                 role: newUser.role,
+            },
+            admin: {
+                id: newUser.id,
+                nama: newUser.nama,
+                email: newUser.email,
+                role: String(newUser.role).toLowerCase(),
             },
         });
     } catch (error) {
