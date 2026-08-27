@@ -32,14 +32,14 @@ await ensureDefaultAdmin();
 // PERBAIKAN 1: Mengatur CORS agar mengizinkan Vercel dan Localhost
 app.use(cors({
     origin: [
-        'http://localhost:3000', // Untuk testing lokal
-        'https://learn-gen-ufpz.vercel.app' // URL Frontend Vercel Anda
+        'http://localhost:3000', // Untuk jaga-jaga jika frontend jalan di 3000
+        'http://localhost:3001', // TAMBAHKAN INI karena frontend Anda sekarang di 3001
+        'https://learn-gen-frontend.vercel.app' 
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
-
 app.use(express.json());
 
 // ==========================================

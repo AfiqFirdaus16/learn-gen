@@ -38,11 +38,21 @@ export default function LoginPage() {
             }
 
             // Simpan token ke localStorage
-            localStorage.setItem('token', data.token);
-            localStorage.setItem('admin', JSON.stringify(data.admin));
+            localStorage.setItem('token', data.token ?? '');
 
+            // Support both `data.admin` (compat) and `data.user` (canonical)
+            const payloadUser = data?.admin ?? data?.user ?? null;
+            if (!payloadUser) {
+                setError('Respons server tidak valid');
+                return;
+            }
+
+            // Normalize role to lowercase for client routing
+            const role = String(payloadUser.role ?? '').toLowerCase();
             const roleRoutes: Record<string, string> = { admin: '/admin', dosen: '/dosen', mahasiswa: '/mahasiswa' };
-            router.push(roleRoutes[data.admin.role] || '/admin');
+
+            localStorage.setItem('admin', JSON.stringify(payloadUser));
+            router.push(roleRoutes[role] || '/admin');
         } catch (err) {
             setError('Terjadi kesalahan. Silakan coba lagi.');
             console.error('Login error:', err);
