@@ -42,32 +42,6 @@ const GROQ_MODEL = GROQ_MODEL_FALLBACKS[0] || 'qwen/qwen3.8-27b';
 // Inisialisasi Groq dengan API Key dari .env
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-async function createGroqCompletion(messages, options = {}) {
-    let lastError;
-
-    for (const model of GROQ_MODEL_FALLBACKS) {
-        try {
-            return await groq.chat.completions.create({
-                ...options,
-                model,
-                messages,
-            });
-        } catch (error) {
-            lastError = error;
-            const message = error?.error?.message || error?.message || '';
-            const isUnavailable = /model_not_found|model_decommissioned|does not exist|do not have access|decommissioned/i.test(message);
-
-            if (!isUnavailable) {
-                throw error;
-            }
-
-            console.warn(`Groq model ${model} tidak tersedia, mencoba fallback berikutnya.`, message);
-        }
-    }
-
-    throw lastError || new Error('Tidak ada model Groq yang tersedia untuk akun ini.');
-}
-
 // ==========================================
 // ENDPOINT PENGECEKAN KONEKSI AI
 // ==========================================
@@ -109,7 +83,7 @@ router.get('/check-connection', async (req, res) => {
 // ==========================================
 // ENDPOINT: BUAT NASKAH AUDIO DARI BRIEF LENGKAP
 // ==========================================
-router.post('/generate-audio-script', async (req, res) => {
+router.post('/generate-heygen-prompt', async (req, res) => {
     try {
         const { videoConfig } = req.body;
 
@@ -126,85 +100,35 @@ router.post('/generate-audio-script', async (req, res) => {
             `Teaching tone: ${videoConfig.tone}`,
             `Audio duration: ${videoConfig.duration} minute(s)`,
             `Target narration length: approximately ${videoConfig.targetWordCount} words`,
+            `Presenter avatar: ${videoConfig.avatarName}`,
             `Voice: ${videoConfig.voiceName}`,
             videoConfig.notes ? `Additional notes: ${videoConfig.notes}` : '',
         ].filter(Boolean).join('\n');
 
-        const groqResponse = await createGroqCompletion([
-            {
-                role: 'system',
-                content: 'You are a narration-only scriptwriter. Output ONLY the spoken script for the video. No title, no intro text, no explanation, no bullet points, no markdown, no labels, no stage directions, no quotes, no mentions of AI, and no extra commentary. Write only the exact script that will be read aloud in the video. Keep it natural, easy to understand, and within the required word count. Use plain paragraphs only.'
-            },
-            {
-                role: 'user',
-                content: groqPrompt
-            }
-        ], {
-            temperature: 0.7,
-        });
-
-        const scriptPrompt = normalizeSpokenScript(groqResponse.choices[0]?.message?.content);
-
-        if (!scriptPrompt) throw new Error('Groq tidak mengembalikan naskah.');
-
-        return res.status(200).json({
-            success: true,
-            data: {
-                script: scriptPrompt,
-                usage: {
-                    total_tokens: groqResponse.usage?.total_tokens || 0
+        const groqResponse = await groq.chat.completions.create({
+            messages: [
+                {
+                    role: "system",
+                    content: "You write educational video scripts for English learning. Create ONE clear English narration based on the user's instruction. Follow the requested approximate word count so the narration matches the selected video duration. Start with one concise opening sentence that introduces why the topic matters, then explain the lesson. The audience is students as a group; never mention a person's name or address one individual. Do not use generic greetings or openings such as welcome, do not mention HeyGen or any platform, do not introduce an avatar, and do not include narrator or visual directions in parentheses. Use plain text only: no title, quotes, Markdown, asterisks, bullets, emojis, or decorative characters. Return only the final English script."
+                },
+                {
+                    role: "user",
+                    content: groqPrompt
                 }
-            }
-        });
-    } catch (error) {
-        console.error("Generate Script Error:", error.response?.data || error.message);
-        return res.status(500).json({ success: false, error: "Gagal membuat naskah audio" });
-    }
-});
-
-router.post('/generate-elevenlabs-prompt', async (req, res) => {
-    try {
-        const { videoConfig } = req.body;
-
-        if (!videoConfig?.topic || !videoConfig?.persona || !videoConfig?.duration) {
-            return res.status(400).json({
-                success: false,
-                error: 'Data topik, persona, dan durasi wajib diisi.'
-            });
-        }
-
-        const groqPrompt = [
-            'Video learning brief:',
-            `Topic/material: ${videoConfig.topic}`,
-            `Presenter persona: ${videoConfig.persona}`,
-            `Audience level: ${videoConfig.level || 'pemula'}`,
-            `Learning style: ${videoConfig.learningStyle || 'Visual'}`,
-            `Teaching tone: ${videoConfig.tone || 'ramah'}`,
-            `Duration: ${videoConfig.duration} minute(s)`,
-            `Target script length: approximately ${videoConfig.targetWordCount || 300} words`,
-            `Presenter theme: ${videoConfig.avatarName || 'ElevenLabs theme'}`,
-            `Voice: ${videoConfig.voiceName || 'ElevenLabs voice'}`,
-            videoConfig.notes ? `Additional notes: ${videoConfig.notes}` : '',
-        ].filter(Boolean).join('\n');
-
-        const groqResponse = await createGroqCompletion([
-            {
-                role: 'system',
-                content: 'You are a narration-only scriptwriter. Output ONLY the spoken script for the video. No title, no intro text, no explanation, no bullet points, no markdown, no labels, no stage directions, no quotes, no mentions of AI, and no extra commentary. Write only the exact script that will be read aloud in the video. Keep it natural, easy to understand, and within the required word count. Use plain paragraphs only.'
-            },
-            {
-                role: 'user',
-                content: groqPrompt
-            }
-        ], {
+            ],
+            model: "llama-3.1-8b-instant",
             temperature: 0.7,
         });
 
-        const script = normalizeSpokenScript(groqResponse.choices[0]?.message?.content);
-
-        if (!script) {
-            throw new Error('Groq tidak mengembalikan script untuk video.');
-        }
+        // Groq kadang tetap menambahkan label seperti "Prompt:"; label ini tidak perlu dikirim ke HeyGen.
+        const heygenPrompt = groqResponse.choices[0]?.message?.content
+            ?.trim()
+            .replace(/^(?:(?:prompt|naskah)(?:\s+(?:untuk|heygen))?\s*:\s*)/i, '')
+            .replace(/\([^)]*\)\s*/g, '')
+            .replace(/\bselamat\s+datang[^.!?]*[.!?]\s*/i, '')
+            .replace(/\bdi\s+heygen\b/gi, '')
+            .replace(/[*•#_`]/g, '');
+        if (!heygenPrompt) throw new Error('Groq tidak mengembalikan naskah.');
 
         return res.status(200).json({
             success: true,
@@ -216,11 +140,8 @@ router.post('/generate-elevenlabs-prompt', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Generate elevenlabs Prompt Error:', error.response?.data || error.message);
-        return res.status(500).json({
-            success: false,
-            error: 'Gagal membuat naskah video dari persona.'
-        });
+        console.error("Generate HeyGen Script Error:", error.response?.data || error.message);
+        return res.status(500).json({ success: false, error: "Gagal membuat naskah HeyGen" });
     }
 });
 
