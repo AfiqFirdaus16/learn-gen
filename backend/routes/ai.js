@@ -5,8 +5,68 @@ import axios from 'axios';
 
 const router = express.Router();
 
+function normalizeSpokenScript(rawValue) {
+    if (!rawValue || typeof rawValue !== 'string') {
+        return '';
+    }
+
+    let text = rawValue
+        .replace(/```(?:json|text)?/gi, '')
+        .replace(/^\s*(?:naskah|script|transcript|here is|berikut|contoh|script video)\s*[:\-]?\s*/i, '')
+        .replace(/\r/g, '')
+        .replace(/\[[^\]]*\]/g, '')
+        .replace(/\([^)]*\)/g, '')
+        .replace(/[*•#_`]/g, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+
+    const lines = text
+        .split(/\n+/)
+        .map((line) => line.replace(/^\s*[-*]\s*/, '').trim())
+        .filter(Boolean)
+        .filter((line) => !/^(?:naskah|script|transcript|here is|berikut|title|judul|voice|speaker|tema|persona|durasi|catatan|note|audio)/i.test(line));
+
+    return lines.join('\n').trim();
+}
+
+const GROQ_MODEL_FALLBACKS = [
+    process.env.GROQ_MODEL,
+    'qwen/qwen3.8-27b',
+    'qwen/qwen3.6-27b',
+    'openai/gpt-oss-20b',
+    'allam-2-7b',
+].filter(Boolean).filter((model, index, list) => list.indexOf(model) === index);
+
+const GROQ_MODEL = GROQ_MODEL_FALLBACKS[0] || 'qwen/qwen3.8-27b';
+
 // Inisialisasi Groq dengan API Key dari .env
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+
+async function createGroqCompletion(messages, options = {}) {
+    let lastError;
+
+    for (const model of GROQ_MODEL_FALLBACKS) {
+        try {
+            return await groq.chat.completions.create({
+                ...options,
+                model,
+                messages,
+            });
+        } catch (error) {
+            lastError = error;
+            const message = error?.error?.message || error?.message || '';
+            const isUnavailable = /model_not_found|model_decommissioned|does not exist|do not have access|decommissioned/i.test(message);
+
+            if (!isUnavailable) {
+                throw error;
+            }
+
+            console.warn(`Groq model ${model} tidak tersedia, mencoba fallback berikutnya.`, message);
+        }
+    }
+
+    throw lastError || new Error('Tidak ada model Groq yang tersedia untuk akun ini.');
+}
 
 // ==========================================
 // ENDPOINT PENGECEKAN KONEKSI AI
@@ -14,29 +74,25 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 router.get('/check-connection', async (req, res) => {
     try {
         // 1. Menguji Koneksi Groq AI
-        // Kita meminta Groq untuk membalas dengan kalimat pendek
-        const groqResponse = await groq.chat.completions.create({
-            messages: [{ role: "user", content: "Katakan 'Groq Berhasil' dalam 2 kata." }],
-            model: "llama-3.1-8b-instant",
-        });
+        const groqResponse = await createGroqCompletion([
+            { role: 'user', content: "Katakan 'Groq Berhasil' dalam 2 kata." }
+        ]);
         const groqStatus = groqResponse.choices[0]?.message?.content;
 
-        // 2. Menguji Koneksi HeyGen AI
-        // Kita mencoba mengambil daftar Avatar dari akun HeyGen Anda
-        const heygenResponse = await axios.get('https://api.heygen.com/v2/avatars', {
+        // 2. Menguji Koneksi ElevenLabs AI
+        const elevenLabsResponse = await axios.get('https://api.elevenlabs.io/v1/voices', {
             headers: {
-                'X-Api-Key': process.env.HEYGEN_API_KEY
+                'xi-api-key': process.env.ELEVENLABS_API_KEY
             }
         });
-        const avatarsCount = heygenResponse.data.data.length;
+        const voicesCount = elevenLabsResponse.data.voices.length;
 
-        // Jika kedua kode di atas berhasil dilewati tanpa error, kirim respons sukses
         res.status(200).json({
             success: true,
             message: "✅ Semua API AI berhasil terhubung!",
             detail: {
                 groq: groqStatus,
-                heygen_total_avatar_tersedia: avatarsCount
+                elevenlabs_total_suara_tersedia: voicesCount
             }
         });
 
@@ -51,9 +107,9 @@ router.get('/check-connection', async (req, res) => {
 });
 
 // ==========================================
-// ENDPOINT: BUAT NASKAH VIDEO DARI BRIEF LENGKAP UNTUK DITINJAU PENGGUNA
+// ENDPOINT: BUAT NASKAH AUDIO DARI BRIEF LENGKAP
 // ==========================================
-router.post('/generate-heygen-prompt', async (req, res) => {
+router.post('/generate-audio-script', async (req, res) => {
     try {
         const { videoConfig } = req.body;
 
@@ -61,183 +117,231 @@ router.post('/generate-heygen-prompt', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Data persona, durasi, dan materi wajib diisi.' });
         }
 
-        // Brief lengkap ini adalah prompt yang dikirim ke Groq. Naskah hasilnya
-        // tetap dipisahkan agar pengguna hanya dapat mengedit naskah video.
         const groqPrompt = [
-            'Video learning brief:',
+            'Audio learning brief:',
             `Material/topic: ${videoConfig.topic}`,
             `Persona: ${videoConfig.persona}`,
             `Student level: ${videoConfig.level}`,
             `Learning style: ${videoConfig.learningStyle}`,
             `Teaching tone: ${videoConfig.tone}`,
-            `Video duration: ${videoConfig.duration} minute(s)`,
+            `Audio duration: ${videoConfig.duration} minute(s)`,
             `Target narration length: approximately ${videoConfig.targetWordCount} words`,
-            `Presenter avatar: ${videoConfig.avatarName}`,
             `Voice: ${videoConfig.voiceName}`,
             videoConfig.notes ? `Additional notes: ${videoConfig.notes}` : '',
         ].filter(Boolean).join('\n');
 
-        const groqResponse = await groq.chat.completions.create({
-            messages: [
-                {
-                    role: "system",
-                    content: "You write educational video scripts for English learning. Create ONE clear English narration based on the user's instruction. Follow the requested approximate word count so the narration matches the selected video duration. Start with one concise opening sentence that introduces why the topic matters, then explain the lesson. The audience is students as a group; never mention a person's name or address one individual. Do not use generic greetings or openings such as welcome, do not mention HeyGen or any platform, do not introduce an avatar, and do not include narrator or visual directions in parentheses. Use plain text only: no title, quotes, Markdown, asterisks, bullets, emojis, or decorative characters. Return only the final English script."
-                },
-                {
-                    role: "user",
-                    content: groqPrompt
-                }
-            ],
-            model: "llama-3.1-8b-instant",
+        const groqResponse = await createGroqCompletion([
+            {
+                role: 'system',
+                content: 'You are a narration-only scriptwriter. Output ONLY the spoken script for the video. No title, no intro text, no explanation, no bullet points, no markdown, no labels, no stage directions, no quotes, no mentions of AI, and no extra commentary. Write only the exact script that will be read aloud in the video. Keep it natural, easy to understand, and within the required word count. Use plain paragraphs only.'
+            },
+            {
+                role: 'user',
+                content: groqPrompt
+            }
+        ], {
             temperature: 0.7,
         });
 
-        // Groq kadang tetap menambahkan label seperti "Prompt:"; label ini tidak perlu dikirim ke HeyGen.
-        const heygenPrompt = groqResponse.choices[0]?.message?.content
-            ?.trim()
-            .replace(/^(?:(?:prompt|naskah)(?:\s+(?:untuk|heygen))?\s*:\s*)/i, '')
-            .replace(/\([^)]*\)\s*/g, '')
-            .replace(/\bselamat\s+datang[^.!?]*[.!?]\s*/i, '')
-            .replace(/\bdi\s+heygen\b/gi, '')
-            .replace(/[*•#_`]/g, '');
-        if (!heygenPrompt) throw new Error('Groq tidak mengembalikan naskah.');
+        const scriptPrompt = normalizeSpokenScript(groqResponse.choices[0]?.message?.content);
+
+        if (!scriptPrompt) throw new Error('Groq tidak mengembalikan naskah.');
 
         return res.status(200).json({
             success: true,
             data: {
-                script: heygenPrompt,
+                script: scriptPrompt,
                 usage: {
-                    prompt_tokens: groqResponse.usage?.prompt_tokens || 0,
-                    completion_tokens: groqResponse.usage?.completion_tokens || 0,
                     total_tokens: groqResponse.usage?.total_tokens || 0
                 }
             }
         });
     } catch (error) {
-        console.error("Generate HeyGen Script Error:", error.response?.data || error.message);
-        return res.status(500).json({ success: false, error: "Gagal membuat naskah HeyGen" });
+        console.error("Generate Script Error:", error.response?.data || error.message);
+        return res.status(500).json({ success: false, error: "Gagal membuat naskah audio" });
+    }
+});
+
+router.post('/generate-elevenlabs-prompt', async (req, res) => {
+    try {
+        const { videoConfig } = req.body;
+
+        if (!videoConfig?.topic || !videoConfig?.persona || !videoConfig?.duration) {
+            return res.status(400).json({
+                success: false,
+                error: 'Data topik, persona, dan durasi wajib diisi.'
+            });
+        }
+
+        const groqPrompt = [
+            'Video learning brief:',
+            `Topic/material: ${videoConfig.topic}`,
+            `Presenter persona: ${videoConfig.persona}`,
+            `Audience level: ${videoConfig.level || 'pemula'}`,
+            `Learning style: ${videoConfig.learningStyle || 'Visual'}`,
+            `Teaching tone: ${videoConfig.tone || 'ramah'}`,
+            `Duration: ${videoConfig.duration} minute(s)`,
+            `Target script length: approximately ${videoConfig.targetWordCount || 300} words`,
+            `Presenter theme: ${videoConfig.avatarName || 'ElevenLabs theme'}`,
+            `Voice: ${videoConfig.voiceName || 'ElevenLabs voice'}`,
+            videoConfig.notes ? `Additional notes: ${videoConfig.notes}` : '',
+        ].filter(Boolean).join('\n');
+
+        const groqResponse = await createGroqCompletion([
+            {
+                role: 'system',
+                content: 'You are a narration-only scriptwriter. Output ONLY the spoken script for the video. No title, no intro text, no explanation, no bullet points, no markdown, no labels, no stage directions, no quotes, no mentions of AI, and no extra commentary. Write only the exact script that will be read aloud in the video. Keep it natural, easy to understand, and within the required word count. Use plain paragraphs only.'
+            },
+            {
+                role: 'user',
+                content: groqPrompt
+            }
+        ], {
+            temperature: 0.7,
+        });
+
+        const script = normalizeSpokenScript(groqResponse.choices[0]?.message?.content);
+
+        if (!script) {
+            throw new Error('Groq tidak mengembalikan script untuk video.');
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                script,
+                usage: {
+                    total_tokens: groqResponse.usage?.total_tokens || 0
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Generate elevenlabs Prompt Error:', error.response?.data || error.message);
+        return res.status(500).json({
+            success: false,
+            error: 'Gagal membuat naskah video dari persona.'
+        });
     }
 });
 
 // ==========================================
-// ENDPOINT UTAMA: GENERATE VIDEO DARI NASKAH YANG SUDAH DIKONFIRMASI
+// ENDPOINT UTAMA: GENERATE AUDIO (TEXT-TO-SPEECH)
 // ==========================================
 router.post('/generate', async (req, res) => {
     try {
-        const { script, avatar_id, voice_id, full_prompt: fullPrompt } = req.body;
+        const { script, voice_id, full_prompt: fullPrompt } = req.body;
+        const cleanedScript = normalizeSpokenScript(script);
 
-        if (!script || !avatar_id || !voice_id) {
-            return res.status(400).json({ success: false, error: "Naskah, Avatar, dan Suara wajib diisi!" });
+        if (!cleanedScript || !voice_id) {
+            return res.status(400).json({ success: false, error: "Naskah dan Suara wajib diisi!" });
         }
 
-        // HeyGen membacakan input_text, jadi hanya naskah final yang dikirim ke
-        // kolom suara. Prompt lengkap disimpan aplikasi sebagai catatan audit.
-        const heygenResponse = await axios.post('https://api.heygen.com/v2/video/generate', {
-            video_inputs: [
-                {
-                    character: {
-                        type: "avatar",
-                        avatar_id: avatar_id, // <- Menerima ID secara dinamis dari frontend
-                        avatar_style: "normal"
-                    },
-                    voice: {
-                        type: "text",
-                        input_text: script,
-                        voice_id: voice_id // <- Menerima ID secara dinamis dari frontend
-                    }
+        // Mengirim naskah ke ElevenLabs dan meminta respons dalam bentuk arraybuffer (audio stream)
+        const elevenLabsResponse = await axios.post(
+            `https://api.elevenlabs.io/v1/text-to-speech/${voice_id}`,
+            {
+                text: cleanedScript,
+                model_id: "eleven_multilingual_v2",
+                voice_settings: {
+                    stability: 0.5,
+                    similarity_boost: 0.75
                 }
-            ],
-            test: true, // Ubah ke false nanti jika ingin membuat video sungguhan (memotong kredit)
-            aspect_ratio: "16:9"
-        }, {
-            headers: {
-                'X-Api-Key': process.env.HEYGEN_API_KEY,
-                'Content-Type': 'application/json'
+            },
+            {
+                headers: {
+                    'xi-api-key': process.env.ELEVENLABS_API_KEY,
+                    'Content-Type': 'application/json',
+                    'Accept': 'audio/mpeg'
+                },
+                responseType: 'arraybuffer' // Penting untuk menerima file biner audio
             }
-        });
+        );
 
-        const videoId = heygenResponse.data.data.video_id;
+        // Mengonversi buffer audio menjadi string Base64 agar mudah dikirim via JSON
+        const audioBase64 = Buffer.from(elevenLabsResponse.data, 'binary').toString('base64');
 
         res.status(200).json({
             success: true,
-            message: "Proses pembuatan video berhasil dimulai!",
+            message: "Audio berhasil di-generate!",
             data: {
-                naskah: script,
+                naskah: cleanedScript,
                 full_prompt: fullPrompt,
-                heygen_video_id: videoId
+                audio_base64: `data:audio/mpeg;base64,${audioBase64}`
             }
         });
 
     } catch (error) {
-        console.error("Generate Video Error:", error.response?.data || error.message);
-        const status = error.response?.status;
-        let failureReason = "Layanan pembuatan video sedang bermasalah. Silakan coba lagi beberapa saat lagi.";
-
-        if (status === 429) {
-            failureReason = "Batas permintaan atau kredit HeyGen telah tercapai. Periksa kuota akun Anda, lalu coba generate ulang.";
-        } else if (status === 401 || status === 403) {
-            failureReason = "Akses ke HeyGen ditolak. Periksa API key atau izin akun sebelum mencoba lagi.";
-        } else if (status === 400) {
-            failureReason = error.response?.data?.message || error.response?.data?.error?.message || "Data video tidak dapat diproses oleh HeyGen. Periksa naskah, avatar, dan suara lalu coba lagi.";
-        }
+        console.error("Generate Audio Error:", error.response?.data || error.message);
         res.status(500).json({
             success: false,
-            error: failureReason
+            error: "Layanan text-to-speech sedang bermasalah. Periksa kuota karakter Anda atau coba lagi nanti."
         });
     }
 });
 
 // ==========================================
-// ENDPOINT: LIHAT DAFTAR AVATAR & SUARA HEYGEN (RAW DATA)
+// ENDPOINT: LIHAT DAFTAR SUARA ELEVENLABS
 // ==========================================
-router.get('/heygen-assets', async (req, res) => {
+router.get('/elevenlabs-assets', async (req, res) => {
     try {
-        // 1. Mengambil daftar Avatar
-        const avatarsResponse = await axios.get('https://api.heygen.com/v2/avatars', {
-            headers: { 'X-Api-Key': process.env.HEYGEN_API_KEY }
+        const voicesResponse = await axios.get('https://api.elevenlabs.io/v1/voices', {
+            headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY }
         });
 
-        // 2. Mengambil daftar Suara (Voices)
-        const voicesResponse = await axios.get('https://api.heygen.com/v2/voices', {
-            headers: { 'X-Api-Key': process.env.HEYGEN_API_KEY }
-        });
-
-        // 3. Langsung kirimkan data mentah dari HeyGen tanpa fungsi .map()
         res.status(200).json({
             success: true,
-            raw_avatars: avatarsResponse.data,
-            raw_voices: voicesResponse.data
+            raw_voices: voicesResponse.data,
+            raw_avatars: { data: { avatars: [] } }
         });
 
     } catch (error) {
-        console.error("Gagal mengambil aset HeyGen:", error.response?.data || error.message);
+        console.error("Gagal mengambil aset ElevenLabs:", error.response?.data || error.message);
         res.status(500).json({
             success: false,
-            error: "Gagal memuat daftar avatar dan suara",
+            error: "Gagal memuat daftar suara",
+            detail: error.response?.data || error.message
+        });
+    }
+});
+
+router.get('/elevenlabs-assets', async (req, res) => {
+    try {
+        const voicesResponse = await axios.get('https://api.elevenlabs.io/v1/voices', {
+            headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY }
+        });
+
+        return res.status(200).json({
+            success: true,
+            raw_avatars: { data: { avatars: [] } },
+            raw_voices: voicesResponse.data
+        });
+    } catch (error) {
+        console.error("Gagal mengambil aset ElevenLabs:", error.response?.data || error.message);
+        return res.status(500).json({
+            success: false,
+            error: "Gagal memuat daftar suara",
             detail: error.response?.data || error.message
         });
     }
 });
 
 // ==========================================
-// ENDPOINT: CEK SISA KREDIT / KUOTA HEYGEN
+// ENDPOINT: CEK SISA KUOTA KARAKTER ELEVENLABS
 // ==========================================
-router.get('/heygen-quota', async (req, res) => {
+router.get('/elevenlabs-quota', async (req, res) => {
     try {
-        // HeyGen menyediakan endpoint khusus untuk mengecek batas akun (limits)
-        const quotaResponse = await axios.get('https://api.heygen.com/v2/user/info', {
-            headers: { 'X-Api-Key': process.env.HEYGEN_API_KEY }
+        const quotaResponse = await axios.get('https://api.elevenlabs.io/v1/user/subscription', {
+            headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY }
         });
 
-        // Struktur data dari HeyGen biasanya menyimpan sisa kredit di dalam properti tertentu
         res.status(200).json({
             success: true,
-            kredit_tersisa: quotaResponse.data.data.quota_left || 0,
-            total_kredit: quotaResponse.data.data.quota_total || 0
+            karakter_terpakai: quotaResponse.data.character_count,
+            total_karakter: quotaResponse.data.character_limit
         });
 
     } catch (error) {
-        console.error("Gagal mengecek kuota HeyGen:", error.response?.data || error.message);
+        console.error("Gagal mengecek kuota ElevenLabs:", error.response?.data || error.message);
         res.status(500).json({
             success: false,
             error: "Gagal memuat informasi kuota"

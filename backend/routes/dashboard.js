@@ -13,7 +13,8 @@ const router = express.Router();
 
 router.get('/stats', verifyToken, async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.admin.id } });
+    // PERBAIKAN: Ubah req.admin.id menjadi req.user.id
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
     if (!user) return res.status(401).json({ error: 'Pengguna tidak ditemukan.' });
 
     const [activeUsers, availableMaterials, createdMaterials, registeredStudents] = await Promise.all([

@@ -33,10 +33,29 @@ model User {
   // Relasi
   videos    Video[]
   materi    Materi[] // Relasi tambahan untuk Dosen/Admin membuat materi
+  tests     Test[]
+  personas  Persona[]
   
   // Pelacakan Waktu (Audit Trail)
   createdAt DateTime @default(now()) 
   updatedAt DateTime @updatedAt      
+}
+
+model Persona {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  learningStyle String
+  avatarId      String
+  avatarName    String
+  voiceId       String
+  voiceName     String
+  level         String
+  tone          String
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model Video {
@@ -56,8 +75,9 @@ model Video {
   accentType      String  // British, American, dll
   
   // Generated Data
+  script          String?  @db.Text
   generatedPrompt String?  @db.Text
-  heygenVideoId   String?  @unique
+  elevenlabsVideoId   String?  @unique
   videoUrl        String?
   
   // Status
@@ -89,7 +109,9 @@ model Materi {
 model Test {
   id        Int      @id @default(autoincrement())
   judul     String
-  status    String   @default("BERJALAN") // Bisa menggunakan enum juga ke depannya
+  status    String   @default("DRAFT") // DRAFT atau DIBAGIKAN
+  authorId  Int
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

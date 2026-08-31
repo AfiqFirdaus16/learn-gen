@@ -6,6 +6,9 @@ import aiRoutes from './routes/ai.js';
 import userRoutes from './routes/users.js';
 import dashboardRoutes from './routes/dashboard.js';
 import videoRoutes from './routes/videos.js';
+import materialRoutes from './routes/materials.js';
+import testRoutes from './routes/tests.js';
+import personaRoutes from './routes/personas.js';
 
 // 2. Import untuk Driver Adapter Prisma
 import pg from 'pg';
@@ -59,6 +62,9 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/videos', videoRoutes);
+app.use('/api/materials', materialRoutes);
+app.use('/api/tests', testRoutes);
+app.use('/api/personas', personaRoutes);
 
 // ==========================================
 // ERROR HANDLING

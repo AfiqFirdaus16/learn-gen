@@ -13,10 +13,13 @@ const router = express.Router();
 
 router.post('/', verifyToken, async (req, res) => {
   try {
-    const { learnerName, topic, learningStyle, persona, duration, accentType, generatedPrompt, heygenVideoId, status = 'processing' } = req.body;
+    const { learnerName, topic, learningStyle, persona, duration, accentType, script, generatedPrompt, elevenlabsVideoId, status = 'processing' } = req.body;
     if (!topic || !learningStyle || !persona || !duration || !accentType) {
       return res.status(400).json({ error: 'Data materi video belum lengkap.' });
     }
+
+    const spokenScript = typeof script === 'string' ? script.trim() : '';
+    const fullPrompt = typeof generatedPrompt === 'string' ? generatedPrompt.trim() : spokenScript;
 
     const video = await prisma.video.create({
       data: {
@@ -27,8 +30,9 @@ router.post('/', verifyToken, async (req, res) => {
         persona,
         duration: Number(duration),
         accentType,
-        generatedPrompt,
-        heygenVideoId,
+        script: spokenScript || fullPrompt,
+        generatedPrompt: fullPrompt,
+        elevenlabsVideoId,
         status,
       },
     });

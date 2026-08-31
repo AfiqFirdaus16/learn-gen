@@ -28,6 +28,25 @@ export const getAdmin = (): AuthUser | null => {
   return null;
 };
 
+export const getRoleHomeRouteFromUser = (user: AuthUser | null | undefined): string => {
+  const role = String(user?.role ?? '').toLowerCase();
+  const roleRoutes: Record<string, string> = {
+    admin: '/admin',
+    dosen: '/dosen',
+    mahasiswa: '/mahasiswa',
+  };
+
+  return roleRoutes[role] || '/admin';
+};
+
+export const getRoleHomeRoute = (): string => {
+  if (typeof window === 'undefined') {
+    return '/admin';
+  }
+
+  return getRoleHomeRouteFromUser(getAdmin());
+};
+
 // Check if authenticated
 export const isAuthenticated = (): boolean => {
   return !!getToken();

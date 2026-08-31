@@ -1,6 +1,6 @@
 # Learn-Gen 📚 - Platform Pembelajaran Video AI
 
-Website untuk membuat video pembelajaran menggunakan AI dengan kombinasi **Grog AI** (untuk generate prompt) dan **HeyGen API** (untuk video generation).
+Website untuk membuat video pembelajaran menggunakan AI dengan kombinasi **Grog AI** (untuk generate prompt) dan **Elevenlabs API** (untuk video generation).
 
 ## 🏗️ Arsitektur Sistem
 
