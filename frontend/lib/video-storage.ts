@@ -7,13 +7,11 @@ export interface VideoItem {
   personaId?: string;
   duration: number;
   accentType: string;
-  avatarId?: string;
   script: string;
   generatedPrompt: string;
-  status: 'Pending' | 'Processing' | 'Completed' | 'Failed';
+  status: 'Pending' | 'Processing' | 'Completed' | 'PromptReady' | 'Failed';
   createdAt: string;
   failureReason?: string;
-  heygenVideoId?: string;
 }
 
 const STORAGE_KEY = 'learn-gen-videos';

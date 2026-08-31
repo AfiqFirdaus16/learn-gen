@@ -8,6 +8,12 @@ const router = express.Router();
 // Inisialisasi Groq dengan API Key dari .env
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+function buildFallbackScript(videoConfig) {
+    const topic = String(videoConfig?.topic || 'this topic').trim();
+    const tone = videoConfig?.tone === 'formal' ? 'structured' : videoConfig?.tone === 'energik' ? 'enthusiastic' : 'friendly';
+    return `This lesson introduces ${topic}. Understanding ${topic} gives students a useful foundation for communicating clearly in English. We will explore the main idea step by step, using simple explanations and practical examples. As you listen, focus on the key terms and how they are used in context. Try repeating the examples aloud, then create one example of your own. By the end of this lesson, you should be able to recognise the essential points about ${topic} and use them with more confidence. Keep practising in a ${tone} and consistent way.`;
+}
+
 // ==========================================
 // ENDPOINT PENGECEKAN KONEKSI AI
 // ==========================================
@@ -53,7 +59,7 @@ router.get('/check-connection', async (req, res) => {
 // ==========================================
 // ENDPOINT: BUAT NASKAH VIDEO DARI BRIEF LENGKAP UNTUK DITINJAU PENGGUNA
 // ==========================================
-router.post('/generate-heygen-prompt', async (req, res) => {
+router.post('/generate-video-prompt', async (req, res) => {
     try {
         const { videoConfig } = req.body;
 
@@ -72,8 +78,8 @@ router.post('/generate-heygen-prompt', async (req, res) => {
             `Teaching tone: ${videoConfig.tone}`,
             `Video duration: ${videoConfig.duration} minute(s)`,
             `Target narration length: approximately ${videoConfig.targetWordCount} words`,
-            `Presenter avatar: ${videoConfig.avatarName}`,
-            `Voice: ${videoConfig.voiceName}`,
+            'Narration language: English',
+            `Preferred English accent: ${videoConfig.accent || 'American'}`,
             videoConfig.notes ? `Additional notes: ${videoConfig.notes}` : '',
         ].filter(Boolean).join('\n');
 
@@ -81,7 +87,7 @@ router.post('/generate-heygen-prompt', async (req, res) => {
             messages: [
                 {
                     role: "system",
-                    content: "You write educational video scripts for English learning. Create ONE clear English narration based on the user's instruction. Follow the requested approximate word count so the narration matches the selected video duration. Start with one concise opening sentence that introduces why the topic matters, then explain the lesson. The audience is students as a group; never mention a person's name or address one individual. Do not use generic greetings or openings such as welcome, do not mention HeyGen or any platform, do not introduce an avatar, and do not include narrator or visual directions in parentheses. Use plain text only: no title, quotes, Markdown, asterisks, bullets, emojis, or decorative characters. Return only the final English script."
+                    content: "You write educational video scripts for English learning. Create ONE clear English narration based on the user's instruction. Follow the requested approximate word count so the narration matches the selected video duration. Start with one concise opening sentence that introduces why the topic matters, then explain the lesson. The audience is students as a group; never mention a person's name or address one individual. Respect the requested English accent through natural spelling and word choice where appropriate. Do not use generic greetings or openings such as welcome, do not mention a video platform, and do not include presenter, avatar, or visual directions. Use plain text only: no title, quotes, Markdown, asterisks, bullets, emojis, or decorative characters. Return only the final English script."
                 },
                 {
                     role: "user",
@@ -92,20 +98,18 @@ router.post('/generate-heygen-prompt', async (req, res) => {
             temperature: 0.7,
         });
 
-        // Groq kadang tetap menambahkan label seperti "Prompt:"; label ini tidak perlu dikirim ke HeyGen.
-        const heygenPrompt = groqResponse.choices[0]?.message?.content
+        const script = groqResponse.choices[0]?.message?.content
             ?.trim()
-            .replace(/^(?:(?:prompt|naskah)(?:\s+(?:untuk|heygen))?\s*:\s*)/i, '')
+            .replace(/^(?:(?:prompt|naskah|script)\s*:\s*)/i, '')
             .replace(/\([^)]*\)\s*/g, '')
             .replace(/\bselamat\s+datang[^.!?]*[.!?]\s*/i, '')
-            .replace(/\bdi\s+heygen\b/gi, '')
             .replace(/[*•#_`]/g, '');
-        if (!heygenPrompt) throw new Error('Groq tidak mengembalikan naskah.');
+        if (!script) throw new Error('Groq tidak mengembalikan naskah.');
 
         return res.status(200).json({
             success: true,
             data: {
-                script: heygenPrompt,
+                script,
                 usage: {
                     prompt_tokens: groqResponse.usage?.prompt_tokens || 0,
                     completion_tokens: groqResponse.usage?.completion_tokens || 0,
@@ -114,8 +118,12 @@ router.post('/generate-heygen-prompt', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error("Generate HeyGen Script Error:", error.response?.data || error.message);
-        return res.status(500).json({ success: false, error: "Gagal membuat naskah HeyGen" });
+        console.error("Generate video prompt error:", error.response?.data || error.message);
+        return res.status(200).json({
+            success: true,
+            data: { script: buildFallbackScript(req.body?.videoConfig), fallback: true },
+            notice: 'Groq sedang tidak tersedia. Sistem membuat draf naskah yang dapat Anda edit.'
+        });
     }
 });
 
