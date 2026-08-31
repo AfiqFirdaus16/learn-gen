@@ -84,7 +84,7 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ error: 'Peran pengguna tidak valid' });
     }
     if (password && password.length < 6) return res.status(400).json({ error: 'Password minimal 6 karakter' });
-    if (id === req.admin.id && normalizedRole !== 'ADMIN') return res.status(400).json({ error: 'Admin tidak dapat menghapus perannya sendiri' });
+    if (id === req.user.id && normalizedRole !== 'ADMIN') return res.status(400).json({ error: 'Admin tidak dapat menghapus perannya sendiri' });
 
     const data = { nama: nama.trim(), email: email.trim().toLowerCase(), role: normalizedRole };
     if (password) data.password = await bcrypt.hash(password, 10);
@@ -101,7 +101,7 @@ router.delete('/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'ID pengguna tidak valid' });
-    if (id === req.admin.id) return res.status(400).json({ error: 'Anda tidak dapat menghapus akun sendiri' });
+    if (id === req.user.id) return res.status(400).json({ error: 'Anda tidak dapat menghapus akun sendiri' });
     await prisma.user.delete({ where: { id } });
     res.json({ success: true, message: 'Pengguna berhasil dihapus' });
   } catch (error) {

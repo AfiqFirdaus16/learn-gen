@@ -83,7 +83,7 @@ router.get('/check-connection', async (req, res) => {
 // ==========================================
 // ENDPOINT: BUAT NASKAH AUDIO DARI BRIEF LENGKAP
 // ==========================================
-router.post('/generate-heygen-prompt', async (req, res) => {
+router.post('/generate-elevenlabs-prompt', async (req, res) => {
     try {
         const { videoConfig } = req.body;
 
@@ -105,30 +105,21 @@ router.post('/generate-heygen-prompt', async (req, res) => {
             videoConfig.notes ? `Additional notes: ${videoConfig.notes}` : '',
         ].filter(Boolean).join('\n');
 
-        const groqResponse = await groq.chat.completions.create({
-            messages: [
-                {
-                    role: "system",
-                    content: "You write educational video scripts for English learning. Create ONE clear English narration based on the user's instruction. Follow the requested approximate word count so the narration matches the selected video duration. Start with one concise opening sentence that introduces why the topic matters, then explain the lesson. The audience is students as a group; never mention a person's name or address one individual. Do not use generic greetings or openings such as welcome, do not mention HeyGen or any platform, do not introduce an avatar, and do not include narrator or visual directions in parentheses. Use plain text only: no title, quotes, Markdown, asterisks, bullets, emojis, or decorative characters. Return only the final English script."
-                },
-                {
-                    role: "user",
-                    content: groqPrompt
-                }
-            ],
-            model: "llama-3.1-8b-instant",
+        const groqResponse = await createGroqCompletion([
+            {
+                role: 'system',
+                content: 'You are a narration-only scriptwriter. Output ONLY the spoken script for the video. No title, no explanation, no labels, no stage directions, no markdown, no quotes, and no extra commentary. Return only plain paragraphs that will be read aloud.'
+            },
+            {
+                role: 'user',
+                content: groqPrompt
+            }
+        ], {
             temperature: 0.7,
         });
 
-        // Groq kadang tetap menambahkan label seperti "Prompt:"; label ini tidak perlu dikirim ke HeyGen.
-        const heygenPrompt = groqResponse.choices[0]?.message?.content
-            ?.trim()
-            .replace(/^(?:(?:prompt|naskah)(?:\s+(?:untuk|heygen))?\s*:\s*)/i, '')
-            .replace(/\([^)]*\)\s*/g, '')
-            .replace(/\bselamat\s+datang[^.!?]*[.!?]\s*/i, '')
-            .replace(/\bdi\s+heygen\b/gi, '')
-            .replace(/[*•#_`]/g, '');
-        if (!heygenPrompt) throw new Error('Groq tidak mengembalikan naskah.');
+        const script = normalizeSpokenScript(groqResponse.choices[0]?.message?.content);
+        if (!script) throw new Error('Groq tidak mengembalikan naskah.');
 
         return res.status(200).json({
             success: true,
@@ -140,8 +131,8 @@ router.post('/generate-heygen-prompt', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error("Generate HeyGen Script Error:", error.response?.data || error.message);
-        return res.status(500).json({ success: false, error: "Gagal membuat naskah HeyGen" });
+        console.error("Generate ElevenLabs Script Error:", error.response?.data || error.message);
+        return res.status(500).json({ success: false, error: "Gagal membuat naskah ElevenLabs" });
     }
 });
 
@@ -218,27 +209,6 @@ router.get('/elevenlabs-assets', async (req, res) => {
     } catch (error) {
         console.error("Gagal mengambil aset ElevenLabs:", error.response?.data || error.message);
         res.status(500).json({
-            success: false,
-            error: "Gagal memuat daftar suara",
-            detail: error.response?.data || error.message
-        });
-    }
-});
-
-router.get('/elevenlabs-assets', async (req, res) => {
-    try {
-        const voicesResponse = await axios.get('https://api.elevenlabs.io/v1/voices', {
-            headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY }
-        });
-
-        return res.status(200).json({
-            success: true,
-            raw_avatars: { data: { avatars: [] } },
-            raw_voices: voicesResponse.data
-        });
-    } catch (error) {
-        console.error("Gagal mengambil aset ElevenLabs:", error.response?.data || error.message);
-        return res.status(500).json({
             success: false,
             error: "Gagal memuat daftar suara",
             detail: error.response?.data || error.message

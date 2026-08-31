@@ -12,10 +12,7 @@ export interface VideoItem {
   status: 'Pending' | 'Processing' | 'Completed' | 'PromptReady' | 'Failed';
   createdAt: string;
   failureReason?: string;
-<<<<<<< HEAD
   elevenlabsVideoId?: string;
-=======
->>>>>>> 4cdfa9567d4761c73d64dfd837a72c1d016dd8ca
 }
 
 const STORAGE_KEY = 'learn-gen-videos';

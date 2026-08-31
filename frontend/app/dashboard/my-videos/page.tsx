@@ -1,55 +1,191 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getRoleHomeRoute } from '@/lib/auth';
-import { getStoredVideos, type VideoItem } from '@/lib/video-storage';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { getStoredPersonas, type PersonaItem } from '@/lib/persona-storage';
+import { getStoredVideos, saveVideo, updateStoredVideo, type VideoItem } from '@/lib/video-storage';
+import { API_BASE_URL } from '@/lib/api-config';
+import { authenticatedFetch, getRoleHomeRoute } from '@/lib/auth';
+import { MONTHLY_TOKEN_LIMIT, estimateTokens, getTokenUsage, recordTokenUsage } from '@/lib/token-usage';
+import { saveConfirmedScript, updateConfirmedScriptStatus } from '@/lib/confirmed-script-storage';
 
-function AttemptDetails({ video, failed = false }: { video: VideoItem; failed?: boolean }) {
-    const statusLabel = video.status === 'Completed' ? 'Video berhasil dibuat' : video.status === 'PromptReady' ? 'Prompt siap digenerate' : video.status === 'Processing' ? 'Diproses' : video.status;
-    const displayPrompt = video.generatedPrompt.replace(/^VIDEO GENERATION PROMPT\s*/i, '');
+const styleLabels: Record<PersonaItem['learningStyle'], string> = { visual: 'Visual', auditory: 'Auditori', kinesthetic: 'Kinestetik', reading: 'Membaca & menulis' };
 
-    return <Card className={failed ? 'border-red-100 shadow-sm' : 'border-emerald-100 shadow-sm'}><CardHeader><div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><CardTitle className="text-xl">{video.topic}</CardTitle><p className="text-sm text-slate-600 dark:text-slate-300">{video.persona} / {video.duration} menit / {video.createdAt}</p></div><span className={`w-fit rounded-full px-3 py-1 text-sm font-medium ${failed ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'}`}>{failed ? 'Gagal' : statusLabel}</span></div></CardHeader><CardContent className={failed ? 'space-y-3' : undefined}><div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300"><p className="font-semibold">Prompt lengkap</p><pre className="mt-1 whitespace-pre-wrap font-sans">{displayPrompt}</pre></div>{failed && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200"><p className="font-semibold">Alasan gagal</p><p className="mt-1">{video.failureReason || 'Penyebab kegagalan tidak tersedia.'}</p><Link href={`/dosen/buat-materi?retry=${encodeURIComponent(video.id)}`}><Button className="mt-4" size="sm">Generate ulang</Button></Link></div>}</CardContent></Card>;
+function buildFullVideoPrompt({ persona, topic, duration, script }: { persona: PersonaItem; topic: string; duration: number; script: string }) {
+    return [`Topic: ${topic}`, `Audience profile: ${persona.name}`, `Student level: ${persona.level}`, `Learning style: ${styleLabels[persona.learningStyle]}`, `Narration tone: ${persona.tone}`, 'Narration language: English', `Preferred English accent: ${persona.accent}`, `Target duration: ${duration} minute(s)`, 'Voice direction: clear, natural, and engaging educational narration.', persona.notes ? `Additional notes: ${persona.notes}` : '', '', 'Final narration script:', script.trim()].filter(Boolean).join('\n');
+}
+const cleanScript = (value: string) => value
+    .replace(/^(?:(?:prompt|naskah|script)(?:\s+(?:untuk|elevenlabs))?\s*:\s*)/i, '')
+    .replace(/\([^)]*\)\s*/g, '')
+    .replace(/\bselamat\s+datang[^.!?]*[.!?]\s*/i, '')
+    .replace(/\bdi\s+elevenlabs\b/gi, '')
+    .replace(/[*•#_`]/g, '');
+
+async function readApiJson(response: Response) {
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+        throw new Error(`Endpoint AI tidak tersedia (HTTP ${response.status}). Restart backend di port 5000 agar route terbaru dimuat.`);
+    }
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Permintaan ke server gagal.');
+    return data;
 }
 
-export default function MyVideosPage() {
-    const [videos, setVideos] = useState<VideoItem[]>([]);
-<<<<<<< HEAD
-    const [homeHref, setHomeHref] = useState('/admin');
-    const [openPanel, setOpenPanel] = useState<'success' | 'failed' | null>(null);
-=======
-    const [openPanel, setOpenPanel] = useState<'success' | 'failed' | null>('failed');
->>>>>>> 4cdfa9567d4761c73d64dfd837a72c1d016dd8ca
+export default function CreateVideoPage() {
+    const router = useRouter();
+    const searchParams = useSearchParams();
+    const [personas, setPersonas] = useState<PersonaItem[]>([]);
+    const [selectedPersonaId, setSelectedPersonaId] = useState('');
+    const [topic, setTopic] = useState('');
+    const [duration, setDuration] = useState('3');
+    const [usedTokens, setUsedTokens] = useState(0);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isCreatingPrompt, setIsCreatingPrompt] = useState(false);
+    const [errorMsg, setErrorMsg] = useState('');
+    const [elevenlabsScript, setElevenlabsScript] = useState('');
+    const [isConfirmed, setIsConfirmed] = useState(false);
+    const [homeHref, setHomeHref] = useState('/dashboard');
+
+    const persona = personas.find((item) => item.id === selectedPersonaId);
+    const durationMinutes = Math.min(10, Math.max(1, Number(duration) || 3));
+    const targetWordCount = durationMinutes * 110;
+    const prompt = useMemo(() => persona ? buildFullVideoPrompt({ persona, topic, duration: durationMinutes, script: 'Naskah akan dibuat oleh Groq AI.' }) : '', [durationMinutes, persona, topic]);
+    const estimatedTokens = persona ? estimateTokens(prompt) + Math.ceil(targetWordCount * 1.3) : 0;
+    const remainingTokens = Math.max(0, MONTHLY_TOKEN_LIMIT - usedTokens);
+    const isOverLimit = Boolean(persona && estimatedTokens > remainingTokens);
+    const usagePercent = Math.min(100, (usedTokens / MONTHLY_TOKEN_LIMIT) * 100);
+    const scriptWordCount = elevenlabsScript.trim() ? elevenlabsScript.trim().split(/\s+/).length : 0;
+    const heygenPrompt = elevenlabsScript;
+    const setHeygenPrompt = setElevenlabsScript;
+    const prepareHeygenPrompt = prepareElevenLabsScript;
 
     useEffect(() => {
         setHomeHref(getRoleHomeRoute());
-    }, []);
+        const load = async () => {
+            const loadedPersonas = await getStoredPersonas();
+            setPersonas(loadedPersonas);
+            setUsedTokens(getTokenUsage());
+            const retryId = searchParams.get('retry');
+            const retryVideo = retryId ? getStoredVideos().find((video) => video.id === retryId && video.status === 'Failed') : undefined;
+            if (retryVideo) {
+                const matchingPersona = loadedPersonas.find((item) => item.id === retryVideo.personaId || item.name === retryVideo.persona);
+                setSelectedPersonaId(matchingPersona?.id || '');
+                setTopic(retryVideo.topic);
+                setDuration(String(retryVideo.duration));
+                setElevenlabsScript(cleanScript(retryVideo.script || retryVideo.generatedPrompt));
+                setIsConfirmed(true);
+            }
+        };
+        void load();
+    }, [searchParams]);
 
-    useEffect(() => {
-        const frame = window.requestAnimationFrame(() => setVideos(getStoredVideos()));
-        return () => window.cancelAnimationFrame(frame);
-    }, []);
+    function clearDraft() {
+        setElevenlabsScript('');
+        setIsConfirmed(false);
+    }
 
-    // Prompt yang baru disimpan belum berarti video sudah selesai dibuat.
-    // Panel hijau hanya menampilkan hasil video yang benar-benar berhasil digenerate.
-    const successfulAttempts = videos.filter((video) => video.status === 'Completed');
-    const failedAttempts = videos.filter((video) => video.status === 'Failed');
-    const togglePanel = (panel: 'success' | 'failed') => setOpenPanel((current) => current === panel ? null : panel);
+    async function prepareElevenLabsScript() {
+        setErrorMsg('');
+        if (!persona) return setErrorMsg('Pilih persona terlebih dahulu.');
+        if (!topic.trim()) return setErrorMsg('Isi topik sebelum membuat naskah ElevenLabs.');
+        if (isOverLimit) return setErrorMsg('Token tidak mencukupi untuk membuat naskah ini.');
+        setIsCreatingPrompt(true);
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/ai/generate-elevenlabs-prompt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ videoConfig: { topic, persona: persona.name, level: persona.level, learningStyle: styleLabels[persona.learningStyle], tone: persona.tone, duration: durationMinutes, targetWordCount, avatarName: persona.avatarName, voiceName: persona.voiceName, notes: persona.notes } }) });
+            const json = await readApiJson(response);
+            if (!json.success) throw new Error(json.error || 'Gagal membuat naskah ElevenLabs.');
+            setElevenlabsScript(cleanScript(json.data.script));
+            setIsConfirmed(false);
+        } catch (error) {
+            setErrorMsg(error instanceof Error ? error.message : 'Gagal membuat naskah.');
+        } finally {
+            setIsCreatingPrompt(false);
+        }
+    }
 
-<<<<<<< HEAD
-    return <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6 dark:from-slate-950 dark:to-slate-900"><div className="mx-auto max-w-6xl space-y-6"><div className="flex items-center justify-between"><div><p className="text-sm font-semibold uppercase tracking-[0.3em] text-indigo-600">Riwayat generate</p><h1 className="text-3xl font-bold">Riwayat percobaan video</h1><p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Prompt tersimpan untuk setiap percobaan, baik yang berhasil maupun gagal.</p></div><Link href={homeHref}><Button variant="outline">Kembali ke dashboard</Button></Link></div>
-        {videos.length === 0 ? <Card className="shadow-sm"><CardContent className="py-12 text-center"><p className="text-lg font-semibold">Belum ada riwayat generate.</p><p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Buat video pertama Anda dari halaman pembuatan video.</p><Link href="/dashboard/create-video"><Button className="mt-6">Buat video baru</Button></Link></CardContent></Card> : <div className="space-y-8">
-=======
-    return <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6 dark:from-slate-950 dark:to-slate-900"><div className="mx-auto max-w-6xl space-y-6"><div className="flex items-center justify-between"><div><p className="text-sm font-semibold uppercase tracking-[0.3em] text-indigo-600">Riwayat generate</p><h1 className="text-3xl font-bold">Riwayat percobaan video</h1><p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Prompt tersimpan untuk setiap percobaan, baik yang berhasil maupun gagal.</p></div><Link href="/dosen"><Button variant="outline">Kembali ke dashboard dosen</Button></Link></div>
-        {videos.length === 0 ? <Card className="shadow-sm"><CardContent className="py-12 text-center"><p className="text-lg font-semibold">Belum ada riwayat generate.</p><p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Buat video pertama Anda dari halaman pembuatan video.</p><Link href="/dosen/buat-materi"><Button className="mt-6">Buat video baru</Button></Link></CardContent></Card> : <div className="space-y-8">
->>>>>>> 4cdfa9567d4761c73d64dfd837a72c1d016dd8ca
-            <div className="grid items-start gap-3 sm:grid-cols-2">
-                <section className="overflow-hidden rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-900"><button type="button" onClick={() => togglePanel('success')} aria-expanded={openPanel === 'success'} className="w-full p-4 text-left transition hover:bg-emerald-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"><div className="flex items-center justify-between"><div><p className="text-sm font-medium">Video berhasil dibuat</p><p className="mt-1 text-2xl font-bold">{successfulAttempts.length}</p></div><span className="text-sm font-semibold">{openPanel === 'success' ? 'Tutup detail' : 'Lihat detail'}</span></div></button>{openPanel === 'success' && <div className="space-y-3 border-t border-emerald-200 p-4">{successfulAttempts.length === 0 ? <p className="text-sm">Belum ada video yang berhasil dibuat.</p> : successfulAttempts.map((video) => <AttemptDetails key={video.id} video={video} />)}</div>}</section>
-                <section className="overflow-hidden rounded-xl border border-red-200 bg-red-50 text-red-900"><button type="button" onClick={() => togglePanel('failed')} aria-expanded={openPanel === 'failed'} className="w-full p-4 text-left transition hover:bg-red-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"><div className="flex items-center justify-between"><div><p className="text-sm font-medium">Gagal dibuat</p><p className="mt-1 text-2xl font-bold">{failedAttempts.length}</p></div><span className="text-sm font-semibold">{openPanel === 'failed' ? 'Tutup detail' : 'Lihat detail'}</span></div></button>{openPanel === 'failed' && <div className="space-y-3 border-t border-red-200 p-4">{failedAttempts.length === 0 ? <p className="text-sm">Belum ada percobaan yang gagal.</p> : failedAttempts.map((video) => <AttemptDetails key={video.id} video={video} failed />)}</div>}</section>
-            </div>
-            <section className="space-y-4"><h2 className="text-xl font-semibold">Semua riwayat</h2><div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">{videos.map((video) => { const failed = video.status === 'Failed'; const label = failed ? 'Gagal' : video.status === 'Completed' ? 'Video berhasil dibuat' : video.status === 'PromptReady' ? 'Prompt siap digenerate' : video.status === 'Processing' ? 'Diproses' : video.status; return <div key={video.id} className="flex flex-col gap-2 border-b border-slate-100 p-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800"><div><p className="font-semibold">{video.topic}</p><p className="text-sm text-slate-500">{video.createdAt}</p></div><span className={`w-fit rounded-full px-3 py-1 text-sm font-medium ${failed ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'}`}>{label}</span></div>; })}</div></section>
-        </div>}
+    async function handleSubmit(event: React.FormEvent) {
+        event.preventDefault();
+        setErrorMsg('');
+        if (!persona) return setErrorMsg('Pilih persona terlebih dahulu.');
+        if (!elevenlabsScript || !isConfirmed) return setErrorMsg('Tinjau dan konfirmasi naskah ElevenLabs sebelum membuat audio.');
+        const createdAt = new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const fullPrompt = buildFullVideoPrompt({ persona, topic, duration: Number(duration) || 3, script: elevenlabsScript });
+        const createVideoAttempt = (status: VideoItem['status'], failureReason?: string, elevenlabsVideoId?: string): VideoItem => ({
+            id: `video-${Date.now()}`,
+            learnerName: 'Murid',
+            topic: topic || 'Topik belum ditentukan',
+            learningStyle: persona.learningStyle,
+            persona: persona.name,
+            personaId: persona.id,
+            duration: Number(duration) || 3,
+            accentType: persona.voiceId,
+            script: elevenlabsScript,
+            generatedPrompt: fullPrompt,
+            status,
+            failureReason,
+            elevenlabsVideoId,
+            createdAt,
+        });
+        if (isOverLimit) {
+            const reason = `Kuota token tidak mencukupi. Estimasi kebutuhan ${estimatedTokens.toLocaleString('id-ID')} token, sedangkan sisa kuota ${remainingTokens.toLocaleString('id-ID')} token.`;
+            saveVideo(createVideoAttempt('Failed', reason));
+            setErrorMsg(reason);
+            return;
+        }
+        setIsSubmitting(true);
+        const attempt = createVideoAttempt('Processing');
+        saveVideo(attempt);
+        const confirmedScriptId = `script-${Date.now()}`;
+        saveConfirmedScript({
+            id: confirmedScriptId,
+            topic: topic || 'Topik belum ditentukan',
+            content: elevenlabsScript,
+            personaName: persona.name,
+            status: 'Confirmed',
+            createdAt: new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+        });
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/ai/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: elevenlabsScript, voice_id: persona.voiceId, full_prompt: fullPrompt }) });
+            const json = await readApiJson(response);
+            if (!json.success) throw new Error(json.error || 'Gagal membuat video di sisi server.');
+            const savedMaterial = await authenticatedFetch(`${API_BASE_URL}/api/videos`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    learnerName: 'Murid',
+                    topic,
+                    learningStyle: persona.learningStyle,
+                    persona: persona.name,
+                    duration: Number(duration) || 3,
+                    accentType: persona.voiceId,
+                    script: json.data.naskah || elevenlabsScript,
+                    generatedPrompt: fullPrompt,
+                    status: 'completed',
+                }),
+            });
+            await readApiJson(savedMaterial);
+            updateConfirmedScriptStatus(confirmedScriptId, 'Submitted');
+            setUsedTokens(recordTokenUsage(estimatedTokens));
+            updateStoredVideo(attempt.id, { status: 'Completed' });
+            router.push('/dosen/riwayat-materi');
+        } catch (error: unknown) {
+            updateConfirmedScriptStatus(confirmedScriptId, 'Failed');
+            const reason = error instanceof Error ? error.message : 'Terjadi kesalahan saat menghubungi server.';
+            updateStoredVideo(attempt.id, { status: 'Failed', failureReason: reason });
+            setErrorMsg(reason);
+        } finally { setIsSubmitting(false); }
+    }
+
+    return <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6 dark:from-slate-950 dark:to-slate-900"><div className="mx-auto max-w-5xl space-y-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold uppercase tracking-[0.3em] text-blue-600">Buat video baru</p><h1 className="text-3xl font-bold">Form pembuat video AI</h1></div><Link href="/dashboard"></Link></div>
+        {errorMsg && <div className="rounded-md border border-red-200 bg-red-50 p-4 text-red-600">{errorMsg}</div>}
+        <Card><CardContent className="pt-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold">Kuota token bulan ini</p><p className="text-sm text-slate-600">Terpakai {usedTokens.toLocaleString('id-ID')} dari {MONTHLY_TOKEN_LIMIT.toLocaleString('id-ID')} token</p></div><span className={`rounded-full px-3 py-1.5 text-sm font-semibold ${remainingTokens <= 1000 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>Sisa {remainingTokens.toLocaleString('id-ID')} token</span></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200"><div className={`h-full ${usagePercent >= 90 ? 'bg-red-500' : usagePercent >= 70 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${usagePercent}%` }} /></div>{persona && <p className={`mt-3 text-sm ${isOverLimit ? 'text-red-600' : 'text-slate-600'}`}>Estimasi video ini: {estimatedTokens.toLocaleString('id-ID')} token. {isOverLimit ? 'Kuota tidak mencukupi.' : 'Penggunaan aktual dicatat setelah video berhasil dibuat.'}</p>}</CardContent></Card>
+        <Card><CardHeader><CardTitle>1. Pilih persona</CardTitle></CardHeader><CardContent>{personas.length === 0 ? <div className="rounded-xl border border-dashed border-violet-300 bg-violet-50 p-5"><p className="font-semibold">Belum ada persona yang tersedia</p><p className="mt-1 text-sm text-slate-600">Buat persona berisi gaya belajar, avatar, dan suara sebelum membuat video.</p><Link href="/dashboard/personas"><Button className="mt-4 bg-violet-600 hover:bg-violet-700">Buat persona</Button></Link></div> : <div className="space-y-3"><Label>Persona untuk video ini</Label><Select value={selectedPersonaId} onValueChange={(value) => { setSelectedPersonaId(value ?? ''); clearDraft(); }}><SelectTrigger className="w-full"><SelectValue placeholder="Pilih persona yang akan digunakan" /></SelectTrigger><SelectContent>{personas.map((item) => <SelectItem key={item.id} value={item.id}>{item.name} · {styleLabels[item.learningStyle]}</SelectItem>)}</SelectContent></Select>{persona && <div className="grid gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm sm:grid-cols-3"><div><p className="text-xs font-semibold uppercase text-blue-600">Target audiens</p><p className="font-semibold">Murid {persona.level}</p><p>{persona.tone}</p></div><div><p className="text-xs font-semibold uppercase text-blue-600">Cara belajar</p><p>{styleLabels[persona.learningStyle]}</p></div><div><p className="text-xs font-semibold uppercase text-blue-600">Presenter</p><p>{persona.avatarName} · {persona.voiceName}</p></div></div>}</div>}</CardContent></Card>
+        <Card><CardHeader><CardTitle>2. Detail video</CardTitle></CardHeader><CardContent><form onSubmit={handleSubmit} className="grid gap-5 md:grid-cols-2"><div className="space-y-2"><Label htmlFor="topic">Topik</Label><Input id="topic" value={topic} onChange={(event) => { setTopic(event.target.value); clearDraft(); }} placeholder="Contoh: Algoritma Sorting" required /></div><div className="space-y-2"><Label htmlFor="duration">Durasi video (menit)</Label><Input id="duration" type="number" min="1" max="10" value={duration} onChange={(event) => { setDuration(event.target.value); clearDraft(); }} required /></div><div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 md:col-span-2"><Label>Naskah Video</Label><p className="mt-2 text-sm text-slate-600">Groq AI membuat naskah narasi sesuai durasi yang dipilih, dalam teks polos tanpa karakter dekoratif.</p><Button type="button" onClick={prepareHeygenPrompt} disabled={isCreatingPrompt || !persona || isOverLimit} className="mt-4 bg-violet-600 hover:bg-violet-700">{isCreatingPrompt ? 'Membuat naskah...' : 'Buat preview naskah dengan Groq AI'}</Button></div>{heygenPrompt && <div className="space-y-3 rounded-xl border border-violet-200 bg-violet-50 p-4 md:col-span-2"><div><p className="font-semibold text-violet-950">3. Preview naskah</p><p className="text-sm text-violet-800">Target sekitar {targetWordCount} kata untuk durasi {durationMinutes} menit. Saat ini {scriptWordCount} kata. Edit naskah bila perlu, kemudian konfirmasi untuk mengaktifkan pembuatan video.</p></div><textarea value={heygenPrompt} onChange={(event) => { setHeygenPrompt(event.target.value); setIsConfirmed(false); }} className="min-h-32 w-full rounded-md border border-violet-200 bg-white p-3 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-violet-400" /><label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={isConfirmed} onChange={(event) => setIsConfirmed(event.target.checked)} /> Saya telah meninjau dan menyetujui naskah ini.</label></div>}<div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end md:col-span-2"><Link href="/dashboard/personas"><Button type="button" variant="outline">Kelola persona</Button></Link><Button type="submit" disabled={isSubmitting || !persona || !heygenPrompt || !isConfirmed} className="min-w-44 bg-blue-600 hover:bg-blue-700">{isSubmitting ? 'Memproses video...' : 'Konfirmasi & buat video'}</Button></div></form></CardContent></Card>
     </div></div>;
 }

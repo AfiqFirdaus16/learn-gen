@@ -23,7 +23,7 @@ router.post('/', verifyToken, async (req, res) => {
 
     const video = await prisma.video.create({
       data: {
-        userId: req.admin.id,
+        userId: req.user.id,
         learnerName: learnerName || 'Murid',
         topic,
         learningStyle,

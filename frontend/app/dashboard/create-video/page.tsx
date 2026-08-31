@@ -1,28 +1,30 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getStoredPersonas, type PersonaItem } from '@/lib/persona-storage';
-import { saveVideo, type VideoItem } from '@/lib/video-storage';
+import { getStoredVideos, saveVideo, updateStoredVideo, type VideoItem } from '@/lib/video-storage';
 import { API_BASE_URL } from '@/lib/api-config';
-import { authenticatedFetch } from '@/lib/auth';
+import { authenticatedFetch, getRoleHomeRoute } from '@/lib/auth';
+import { MONTHLY_TOKEN_LIMIT, estimateTokens, getTokenUsage, recordTokenUsage } from '@/lib/token-usage';
+import { saveConfirmedScript, updateConfirmedScriptStatus } from '@/lib/confirmed-script-storage';
 
 const styleLabels: Record<PersonaItem['learningStyle'], string> = { visual: 'Visual', auditory: 'Auditori', kinesthetic: 'Kinestetik', reading: 'Membaca & menulis' };
 
-function buildPrompt(persona: PersonaItem, topic: string, duration: number, script: string) {
+function buildFullVideoPrompt({ persona, topic, duration, script }: { persona: PersonaItem; topic: string; duration: number; script: string }) {
   return [`Topic: ${topic}`, `Audience profile: ${persona.name}`, `Student level: ${persona.level}`, `Learning style: ${styleLabels[persona.learningStyle]}`, `Narration tone: ${persona.tone}`, 'Narration language: English', `Preferred English accent: ${persona.accent}`, `Target duration: ${duration} minute(s)`, 'Voice direction: clear, natural, and engaging educational narration.', persona.notes ? `Additional notes: ${persona.notes}` : '', '', 'Final narration script:', script.trim()].filter(Boolean).join('\n');
 }
 const cleanScript = (value: string) => value
-  .replace(/^(?:(?:prompt|naskah)(?:\s+(?:untuk|heygen))?\s*:\s*)/i, '')
+  .replace(/^(?:(?:prompt|naskah|script)(?:\s+(?:untuk|elevenlabs))?\s*:\s*)/i, '')
   .replace(/\([^)]*\)\s*/g, '')
   .replace(/\bselamat\s+datang[^.!?]*[.!?]\s*/i, '')
-  .replace(/\bdi\s+heygen\b/gi, '')
+  .replace(/\bdi\s+elevenlabs\b/gi, '')
   .replace(/[*•#_`]/g, '');
 
 async function readApiJson(response: Response) {
@@ -37,6 +39,7 @@ async function readApiJson(response: Response) {
 
 export default function CreateVideoPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [personas, setPersonas] = useState<PersonaItem[]>([]);
   const [selectedPersonaId, setSelectedPersonaId] = useState('');
   const [topic, setTopic] = useState('');
@@ -45,28 +48,9 @@ export default function CreateVideoPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCreatingPrompt, setIsCreatingPrompt] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [heygenPrompt, setHeygenPrompt] = useState('');
+  const [elevenlabsScript, setElevenlabsScript] = useState('');
   const [isConfirmed, setIsConfirmed] = useState(false);
-
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      const storedPersonas = getStoredPersonas();
-      setPersonas(storedPersonas);
-      setUsedTokens(getTokenUsage());
-
-      const retryId = searchParams.get('retry');
-      const retryVideo = retryId ? getStoredVideos().find((video) => video.id === retryId && video.status === 'Failed') : undefined;
-      if (retryVideo) {
-        const matchingPersona = storedPersonas.find((item) => item.id === retryVideo.personaId || item.name === retryVideo.persona);
-        setSelectedPersonaId(matchingPersona?.id || '');
-        setTopic(retryVideo.topic);
-        setDuration(String(retryVideo.duration));
-        setHeygenPrompt(retryVideo.script || retryVideo.generatedPrompt);
-        setIsConfirmed(true);
-      }
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [searchParams]);
+  const [homeHref, setHomeHref] = useState('/dashboard');
 
   const persona = personas.find((item) => item.id === selectedPersonaId);
   const durationMinutes = Math.min(10, Math.max(1, Number(duration) || 3));
@@ -74,40 +58,65 @@ export default function CreateVideoPage() {
   const prompt = useMemo(() => persona ? buildFullVideoPrompt({ persona, topic, duration: durationMinutes, script: 'Naskah akan dibuat oleh Groq AI.' }) : '', [durationMinutes, persona, topic]);
   const estimatedTokens = persona ? estimateTokens(prompt) + Math.ceil(targetWordCount * 1.3) : 0;
   const remainingTokens = Math.max(0, MONTHLY_TOKEN_LIMIT - usedTokens);
-  const usagePercent = Math.min(100, usedTokens / MONTHLY_TOKEN_LIMIT * 100);
   const isOverLimit = Boolean(persona && estimatedTokens > remainingTokens);
-  const scriptWordCount = heygenPrompt.trim() ? heygenPrompt.trim().split(/\s+/).length : 0;
+  const usagePercent = Math.min(100, (usedTokens / MONTHLY_TOKEN_LIMIT) * 100);
+  const scriptWordCount = elevenlabsScript.trim() ? elevenlabsScript.trim().split(/\s+/).length : 0;
+  const heygenPrompt = elevenlabsScript;
+  const setHeygenPrompt = setElevenlabsScript;
+  const prepareHeygenPrompt = prepareElevenLabsScript;
+
+  useEffect(() => {
+    setHomeHref(getRoleHomeRoute());
+    const load = async () => {
+      const loadedPersonas = await getStoredPersonas();
+      setPersonas(loadedPersonas);
+      setUsedTokens(getTokenUsage());
+      const retryId = searchParams.get('retry');
+      const retryVideo = retryId ? getStoredVideos().find((video) => video.id === retryId && video.status === 'Failed') : undefined;
+      if (retryVideo) {
+        const matchingPersona = loadedPersonas.find((item) => item.id === retryVideo.personaId || item.name === retryVideo.persona);
+        setSelectedPersonaId(matchingPersona?.id || '');
+        setTopic(retryVideo.topic);
+        setDuration(String(retryVideo.duration));
+        setElevenlabsScript(cleanScript(retryVideo.script || retryVideo.generatedPrompt));
+        setIsConfirmed(true);
+      }
+    };
+    void load();
+  }, [searchParams]);
 
   function clearDraft() {
-    setHeygenPrompt('');
+    setElevenlabsScript('');
     setIsConfirmed(false);
   }
 
-  function prepareHeygenPrompt() {
+  async function prepareElevenLabsScript() {
     setErrorMsg('');
     if (!persona) return setErrorMsg('Pilih persona terlebih dahulu.');
-    if (!topic.trim()) return setErrorMsg('Isi topik sebelum menyiapkan prompt HeyGen.');
-    if (isOverLimit) return setErrorMsg(`Token tidak mencukupi. Estimasi kebutuhan ${estimatedTokens.toLocaleString('id-ID')} token; sisa kuota ${remainingTokens.toLocaleString('id-ID')} token.`);
+    if (!topic.trim()) return setErrorMsg('Isi topik sebelum membuat naskah ElevenLabs.');
+    if (isOverLimit) return setErrorMsg('Token tidak mencukupi untuk membuat naskah ini.');
     setIsCreatingPrompt(true);
-    fetch(`${API_BASE_URL}/api/ai/generate-heygen-prompt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ videoConfig: { topic, persona: persona.name, level: persona.level, learningStyle: styleLabels[persona.learningStyle], tone: persona.tone, duration: durationMinutes, targetWordCount, avatarName: persona.avatarName, voiceName: persona.voiceName, notes: persona.notes } }) })
-      .then(readApiJson)
-      .then((json) => {
-        if (!json.success) throw new Error(json.error || 'Gagal membuat naskah HeyGen.');
-        setHeygenPrompt(cleanScript(json.data.script));
-        setIsConfirmed(false);
-      })
-      .catch((error: unknown) => setErrorMsg(error instanceof Error ? error.message : 'Terjadi kesalahan saat meminta Groq AI.'))
-      .finally(() => setIsCreatingPrompt(false));
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/ai/generate-elevenlabs-prompt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ videoConfig: { topic, persona: persona.name, level: persona.level, learningStyle: styleLabels[persona.learningStyle], tone: persona.tone, duration: durationMinutes, targetWordCount, avatarName: persona.avatarName, voiceName: persona.voiceName, notes: persona.notes } }) });
+      const json = await readApiJson(response);
+      if (!json.success) throw new Error(json.error || 'Gagal membuat naskah ElevenLabs.');
+      setElevenlabsScript(cleanScript(json.data.script));
+      setIsConfirmed(false);
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Gagal membuat naskah.');
+    } finally {
+      setIsCreatingPrompt(false);
+    }
   }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setErrorMsg('');
     if (!persona) return setErrorMsg('Pilih persona terlebih dahulu.');
-    if (!heygenPrompt || !isConfirmed) return setErrorMsg('Tinjau dan konfirmasi naskah HeyGen sebelum membuat video.');
+    if (!elevenlabsScript || !isConfirmed) return setErrorMsg('Tinjau dan konfirmasi naskah ElevenLabs sebelum membuat audio.');
     const createdAt = new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-    const fullPrompt = buildFullVideoPrompt({ persona, topic, duration: Number(duration) || 3, script: heygenPrompt });
-    const createVideoAttempt = (status: VideoItem['status'], failureReason?: string, heygenVideoId?: string): VideoItem => ({
+    const fullPrompt = buildFullVideoPrompt({ persona, topic, duration: Number(duration) || 3, script: elevenlabsScript });
+    const createVideoAttempt = (status: VideoItem['status'], failureReason?: string, elevenlabsVideoId?: string): VideoItem => ({
       id: `video-${Date.now()}`,
       learnerName: 'Murid',
       topic: topic || 'Topik belum ditentukan',
@@ -116,12 +125,11 @@ export default function CreateVideoPage() {
       personaId: persona.id,
       duration: Number(duration) || 3,
       accentType: persona.voiceId,
-      avatarId: persona.avatarId,
-      script: heygenPrompt,
+      script: elevenlabsScript,
       generatedPrompt: fullPrompt,
       status,
       failureReason,
-      heygenVideoId,
+      elevenlabsVideoId,
       createdAt,
     });
     if (isOverLimit) {
@@ -137,13 +145,13 @@ export default function CreateVideoPage() {
     saveConfirmedScript({
       id: confirmedScriptId,
       topic: topic || 'Topik belum ditentukan',
-      content: heygenPrompt,
+      content: elevenlabsScript,
       personaName: persona.name,
       status: 'Confirmed',
       createdAt: new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
     });
     try {
-      const response = await fetch(`${API_BASE_URL}/api/ai/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: heygenPrompt, avatar_id: persona.avatarId, voice_id: persona.voiceId, full_prompt: fullPrompt }) });
+      const response = await fetch(`${API_BASE_URL}/api/ai/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: elevenlabsScript, voice_id: persona.voiceId, full_prompt: fullPrompt }) });
       const json = await readApiJson(response);
       if (!json.success) throw new Error(json.error || 'Gagal membuat video di sisi server.');
       const savedMaterial = await authenticatedFetch(`${API_BASE_URL}/api/videos`, {
@@ -155,15 +163,15 @@ export default function CreateVideoPage() {
           persona: persona.name,
           duration: Number(duration) || 3,
           accentType: persona.voiceId,
+          script: json.data.naskah || elevenlabsScript,
           generatedPrompt: fullPrompt,
-          heygenVideoId: json.data.heygen_video_id,
-          status: 'processing',
+          status: 'completed',
         }),
       });
       await readApiJson(savedMaterial);
       updateConfirmedScriptStatus(confirmedScriptId, 'Submitted');
       setUsedTokens(recordTokenUsage(estimatedTokens));
-      updateStoredVideo(attempt.id, { heygenVideoId: json.data.heygen_video_id });
+      updateStoredVideo(attempt.id, { status: 'Completed' });
       router.push('/dosen/riwayat-materi');
     } catch (error: unknown) {
       updateConfirmedScriptStatus(confirmedScriptId, 'Failed');
