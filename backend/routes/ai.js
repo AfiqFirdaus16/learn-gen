@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import express from 'express';
-import { Groq } from 'groq-sdk';
 import axios from 'axios';
 
 const router = express.Router();
@@ -29,29 +28,52 @@ function normalizeSpokenScript(rawValue) {
     return lines.join('\n').trim();
 }
 
-const GROQ_MODEL_FALLBACKS = [
-    process.env.GROQ_MODEL,
-    'qwen/qwen3.8-27b',
-    'qwen/qwen3.6-27b',
-    'openai/gpt-oss-20b',
-    'allam-2-7b',
-].filter(Boolean).filter((model, index, list) => list.indexOf(model) === index);
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
-const GROQ_MODEL = GROQ_MODEL_FALLBACKS[0] || 'qwen/qwen3.8-27b';
+async function createGeminiCompletion(prompt) {
+    if (!process.env.GEMINI_API_KEY) {
+        throw new Error('GEMINI_API_KEY belum dikonfigurasi.');
+    }
 
-// Inisialisasi Groq dengan API Key dari .env
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+    let response;
+    try {
+        response = await axios.post(
+            `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+            {
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.7 },
+            },
+            {
+                params: { key: process.env.GEMINI_API_KEY },
+                headers: { 'Content-Type': 'application/json' },
+            },
+        );
+    } catch (error) {
+        const providerMessage = error.response?.data?.error?.message || error.message;
+        const providerError = new Error(`Gemini API (${error.response?.status || 'network'}): ${providerMessage}`);
+        providerError.status = error.response?.status || 502;
+        throw providerError;
+    }
+
+    const text = response.data?.candidates?.[0]?.content?.parts
+        ?.map((part) => part.text || '')
+        .join('')
+        .trim();
+
+    if (!text) {
+        const finishReason = response.data?.candidates?.[0]?.finishReason;
+        throw new Error(`Gemini tidak mengembalikan naskah${finishReason ? ` (${finishReason})` : ''}.`);
+    }
+    return { text, usage: response.data?.usageMetadata };
+}
 
 // ==========================================
 // ENDPOINT PENGECEKAN KONEKSI AI
 // ==========================================
 router.get('/check-connection', async (req, res) => {
     try {
-        // 1. Menguji Koneksi Groq AI
-        const groqResponse = await createGroqCompletion([
-            { role: 'user', content: "Katakan 'Groq Berhasil' dalam 2 kata." }
-        ]);
-        const groqStatus = groqResponse.choices[0]?.message?.content;
+        // 1. Menguji koneksi Gemini AI
+        const geminiResponse = await createGeminiCompletion("Reply with exactly two words: Gemini connected.");
 
         // 2. Menguji Koneksi ElevenLabs AI
         const elevenLabsResponse = await axios.get('https://api.elevenlabs.io/v1/voices', {
@@ -65,7 +87,7 @@ router.get('/check-connection', async (req, res) => {
             success: true,
             message: "✅ Semua API AI berhasil terhubung!",
             detail: {
-                groq: groqStatus,
+                gemini: geminiResponse.text,
                 elevenlabs_total_suara_tersedia: voicesCount
             }
         });
@@ -91,7 +113,7 @@ router.post('/generate-elevenlabs-prompt', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Data persona, durasi, dan materi wajib diisi.' });
         }
 
-        const groqPrompt = [
+        const geminiPrompt = [
             'Audio learning brief:',
             `Material/topic: ${videoConfig.topic}`,
             `Persona: ${videoConfig.persona}`,
@@ -100,39 +122,32 @@ router.post('/generate-elevenlabs-prompt', async (req, res) => {
             `Teaching tone: ${videoConfig.tone}`,
             `Audio duration: ${videoConfig.duration} minute(s)`,
             `Target narration length: approximately ${videoConfig.targetWordCount} words`,
+            `Required script direction: ${videoConfig.scriptDescription || 'Explain the topic clearly and stay strictly within the requested material.'}`,
             `Presenter avatar: ${videoConfig.avatarName}`,
             `Voice: ${videoConfig.voiceName}`,
             videoConfig.notes ? `Additional notes: ${videoConfig.notes}` : '',
         ].filter(Boolean).join('\n');
 
-        const groqResponse = await createGroqCompletion([
-            {
-                role: 'system',
-                content: 'You are a narration-only scriptwriter. Output ONLY the spoken script for the video. No title, no explanation, no labels, no stage directions, no markdown, no quotes, and no extra commentary. Return only plain paragraphs that will be read aloud.'
-            },
-            {
-                role: 'user',
-                content: groqPrompt
-            }
-        ], {
-            temperature: 0.7,
-        });
-
-        const script = normalizeSpokenScript(groqResponse.choices[0]?.message?.content);
-        if (!script) throw new Error('Groq tidak mengembalikan naskah.');
+        const geminiResponse = await createGeminiCompletion(`You are a narration-only educational scriptwriter. Output ONLY the spoken script for the video. Stay strictly on the requested material/topic and follow the user's script direction. Do not add unrelated examples or topics. No title, no explanation, no labels, no stage directions, no markdown, no quotes, and no extra commentary. Return only plain paragraphs that will be read aloud.\n\n${geminiPrompt}`);
+        const script = normalizeSpokenScript(geminiResponse.text);
+        if (!script) throw new Error('Gemini tidak mengembalikan naskah.');
 
         return res.status(200).json({
             success: true,
             data: {
                 script,
                 usage: {
-                    total_tokens: groqResponse.usage?.total_tokens || 0
+                    total_tokens: geminiResponse.usage?.totalTokenCount || 0
                 }
             }
         });
     } catch (error) {
-        console.error("Generate ElevenLabs Script Error:", error.response?.data || error.message);
-        return res.status(500).json({ success: false, error: "Gagal membuat naskah ElevenLabs" });
+        console.error("Generate Gemini Script Error:", error.response?.data || error.message);
+        return res.status(error.status || 502).json({
+            success: false,
+            error: error.message || 'Gemini gagal membuat naskah.',
+            provider: 'gemini',
+        });
     }
 });
 
@@ -225,10 +240,14 @@ router.get('/elevenlabs-quota', async (req, res) => {
             headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY }
         });
 
+        const characterCount = Number(quotaResponse.data.character_count || 0);
+        const characterLimit = Number(quotaResponse.data.character_limit || 0);
+
         res.status(200).json({
             success: true,
-            karakter_terpakai: quotaResponse.data.character_count,
-            total_karakter: quotaResponse.data.character_limit
+            karakter_terpakai: characterCount,
+            total_karakter: characterLimit,
+            sisa_karakter: Math.max(0, characterLimit - characterCount),
         });
 
     } catch (error) {
