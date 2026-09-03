@@ -48,7 +48,8 @@ export default function CreateVideoPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isCreatingPrompt, setIsCreatingPrompt] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
-    const [elevenlabsScript, setElevenlabsScript] = useState('');
+    const [videoScript, setVideoScript] = useState('');
+    const [sourceUrl, setSourceUrl] = useState('');
     const [isConfirmed, setIsConfirmed] = useState(false);
     const [homeHref, setHomeHref] = useState('/dashboard');
 
@@ -60,10 +61,10 @@ export default function CreateVideoPage() {
     const remainingTokens = Math.max(0, MONTHLY_TOKEN_LIMIT - usedTokens);
     const isOverLimit = Boolean(persona && estimatedTokens > remainingTokens);
     const usagePercent = Math.min(100, (usedTokens / MONTHLY_TOKEN_LIMIT) * 100);
-    const scriptWordCount = elevenlabsScript.trim() ? elevenlabsScript.trim().split(/\s+/).length : 0;
-    const heygenPrompt = elevenlabsScript;
-    const setHeygenPrompt = setElevenlabsScript;
-    const prepareHeygenPrompt = prepareElevenLabsScript;
+    const scriptWordCount = videoScript.trim() ? videoScript.trim().split(/\s+/).length : 0;
+    const heygenPrompt = videoScript;
+    const setHeygenPrompt = setVideoScript;
+    const prepareHeygenPrompt = prepareVideoScript;
 
     useEffect(() => {
         setHomeHref(getRoleHomeRoute());
@@ -78,7 +79,7 @@ export default function CreateVideoPage() {
                 setSelectedPersonaId(matchingPersona?.id || '');
                 setTopic(retryVideo.topic);
                 setDuration(String(retryVideo.duration));
-                setElevenlabsScript(cleanScript(retryVideo.script || retryVideo.generatedPrompt));
+                setVideoScript(cleanScript(retryVideo.script || retryVideo.generatedPrompt));
                 setIsConfirmed(true);
             }
         };
@@ -86,21 +87,30 @@ export default function CreateVideoPage() {
     }, [searchParams]);
 
     function clearDraft() {
-        setElevenlabsScript('');
+        setVideoScript('');
         setIsConfirmed(false);
     }
 
-    async function prepareElevenLabsScript() {
+    async function prepareVideoScript() {
         setErrorMsg('');
         if (!persona) return setErrorMsg('Pilih persona terlebih dahulu.');
-        if (!topic.trim()) return setErrorMsg('Isi topik sebelum membuat naskah ElevenLabs.');
+        if (!topic.trim()) return setErrorMsg('Isi topik sebelum membuat naskah video.');
         if (isOverLimit) return setErrorMsg('Token tidak mencukupi untuk membuat naskah ini.');
         setIsCreatingPrompt(true);
         try {
-            const response = await fetch(`${API_BASE_URL}/api/ai/generate-elevenlabs-prompt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ videoConfig: { topic, persona: persona.name, level: persona.level, learningStyle: styleLabels[persona.learningStyle], tone: persona.tone, duration: durationMinutes, targetWordCount, avatarName: persona.avatarName, voiceName: persona.voiceName, notes: persona.notes } }) });
-            const json = await readApiJson(response);
-            if (!json.success) throw new Error(json.error || 'Gagal membuat naskah ElevenLabs.');
-            setElevenlabsScript(cleanScript(json.data.script));
+            const requestBody = { topic, duration: durationMinutes, learningStyle: styleLabels[persona.learningStyle], persona: `${persona.name}, level ${persona.level}`, targetWordCount, notes: persona.notes };
+            let response = await fetch(`${API_BASE_URL}/api/ai/generate-script`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
+            let json;
+            if (response.status === 404) {
+                response = await fetch(`${API_BASE_URL}/api/ai/generate-elevenlabs-prompt`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ videoConfig: { topic, persona: persona.name, level: persona.level, learningStyle: styleLabels[persona.learningStyle], tone: persona.tone, duration: durationMinutes, targetWordCount, notes: persona.notes } }),
+                });
+            }
+            json = await readApiJson(response);
+            if (!json.success) throw new Error(json.error || 'Gagal membuat naskah video.');
+            setVideoScript(cleanScript(json.data.script));
             setIsConfirmed(false);
         } catch (error) {
             setErrorMsg(error instanceof Error ? error.message : 'Gagal membuat naskah.');
@@ -113,9 +123,10 @@ export default function CreateVideoPage() {
         event.preventDefault();
         setErrorMsg('');
         if (!persona) return setErrorMsg('Pilih persona terlebih dahulu.');
-        if (!elevenlabsScript || !isConfirmed) return setErrorMsg('Tinjau dan konfirmasi naskah ElevenLabs sebelum membuat audio.');
+        if (!videoScript || !isConfirmed) return setErrorMsg('Tinjau dan konfirmasi naskah sebelum membuat video.');
+        if (!sourceUrl.trim()) return setErrorMsg('URL gambar avatar D-ID wajib diisi.');
         const createdAt = new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-        const fullPrompt = buildFullVideoPrompt({ persona, topic, duration: Number(duration) || 3, script: elevenlabsScript });
+        const fullPrompt = buildFullVideoPrompt({ persona, topic, duration: Number(duration) || 3, script: videoScript });
         const createVideoAttempt = (status: VideoItem['status'], failureReason?: string, elevenlabsVideoId?: string): VideoItem => ({
             id: `video-${Date.now()}`,
             learnerName: 'Murid',
@@ -124,8 +135,8 @@ export default function CreateVideoPage() {
             persona: persona.name,
             personaId: persona.id,
             duration: Number(duration) || 3,
-            accentType: persona.voiceId,
-            script: elevenlabsScript,
+            accentType: 'd-id',
+            script: videoScript,
             generatedPrompt: fullPrompt,
             status,
             failureReason,
@@ -145,15 +156,12 @@ export default function CreateVideoPage() {
         saveConfirmedScript({
             id: confirmedScriptId,
             topic: topic || 'Topik belum ditentukan',
-            content: elevenlabsScript,
+            content: videoScript,
             personaName: persona.name,
             status: 'Confirmed',
             createdAt: new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
         });
         try {
-            const response = await fetch(`${API_BASE_URL}/api/ai/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: elevenlabsScript, voice_id: persona.voiceId, full_prompt: fullPrompt }) });
-            const json = await readApiJson(response);
-            if (!json.success) throw new Error(json.error || 'Gagal membuat video di sisi server.');
             const savedMaterial = await authenticatedFetch(`${API_BASE_URL}/api/videos`, {
                 method: 'POST',
                 body: JSON.stringify({
@@ -162,13 +170,18 @@ export default function CreateVideoPage() {
                     learningStyle: persona.learningStyle,
                     persona: persona.name,
                     duration: Number(duration) || 3,
-                    accentType: persona.voiceId,
-                    script: json.data.naskah || elevenlabsScript,
+                    accentType: 'd-id',
+                    script: videoScript,
                     generatedPrompt: fullPrompt,
                     status: 'completed',
                 }),
             });
-            await readApiJson(savedMaterial);
+            const savedVideo = await readApiJson(savedMaterial);
+            const dIdResponse = await authenticatedFetch(`${API_BASE_URL}/api/videos/create`, {
+                method: 'POST',
+                body: JSON.stringify({ videoId: savedVideo.data.id, scriptText: videoScript, sourceUrl: sourceUrl.trim() }),
+            });
+            await readApiJson(dIdResponse);
             updateConfirmedScriptStatus(confirmedScriptId, 'Submitted');
             setUsedTokens(recordTokenUsage(estimatedTokens));
             updateStoredVideo(attempt.id, { status: 'Completed' });
@@ -184,6 +197,7 @@ export default function CreateVideoPage() {
     return <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6 dark:from-slate-950 dark:to-slate-900"><div className="mx-auto max-w-5xl space-y-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold uppercase tracking-[0.3em] text-blue-600">Buat video baru</p><h1 className="text-3xl font-bold">Form pembuat video AI</h1></div><Link href="/dashboard"></Link></div>
         {errorMsg && <div className="rounded-md border border-red-200 bg-red-50 p-4 text-red-600">{errorMsg}</div>}
+        <Card><CardContent className="pt-5"><Label htmlFor="source-url">URL gambar avatar D-ID</Label><Input id="source-url" type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://contoh.com/avatar.jpg" required /></CardContent></Card>
         <Card><CardHeader><CardTitle>1. Pilih persona</CardTitle></CardHeader><CardContent>{personas.length === 0 ? <div className="rounded-xl border border-dashed border-violet-300 bg-violet-50 p-5"><p className="font-semibold">Belum ada persona yang tersedia</p><p className="mt-1 text-sm text-slate-600">Buat persona berisi gaya belajar, avatar, dan suara sebelum membuat video.</p><Link href="/dashboard/personas"><Button className="mt-4 bg-violet-600 hover:bg-violet-700">Buat persona</Button></Link></div> : <div className="space-y-3"><Label>Persona untuk video ini</Label><Select value={selectedPersonaId} onValueChange={(value) => { setSelectedPersonaId(value ?? ''); clearDraft(); }}><SelectTrigger className="w-full"><SelectValue placeholder="Pilih persona yang akan digunakan" /></SelectTrigger><SelectContent>{personas.map((item) => <SelectItem key={item.id} value={item.id}>{item.name} · {styleLabels[item.learningStyle]}</SelectItem>)}</SelectContent></Select>{persona && <div className="grid gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm sm:grid-cols-3"><div><p className="text-xs font-semibold uppercase text-blue-600">Target audiens</p><p className="font-semibold">Murid {persona.level}</p><p>{persona.tone}</p></div><div><p className="text-xs font-semibold uppercase text-blue-600">Cara belajar</p><p>{styleLabels[persona.learningStyle]}</p></div><div><p className="text-xs font-semibold uppercase text-blue-600">Presenter</p><p>{persona.avatarName} · {persona.voiceName}</p></div></div>}</div>}</CardContent></Card>
         <Card><CardHeader><CardTitle>2. Detail video</CardTitle></CardHeader><CardContent><form onSubmit={handleSubmit} className="grid gap-5 md:grid-cols-2"><div className="space-y-2"><Label htmlFor="topic">Topik</Label><Input id="topic" value={topic} onChange={(event) => { setTopic(event.target.value); clearDraft(); }} placeholder="Contoh: Algoritma Sorting" required /></div><div className="space-y-2"><Label htmlFor="duration">Durasi video (menit)</Label><Input id="duration" type="number" min="1" max="10" value={duration} onChange={(event) => { setDuration(event.target.value); clearDraft(); }} required /></div><div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 md:col-span-2"><Label>Naskah Video</Label><p className="mt-2 text-sm text-slate-600">Groq AI membuat naskah narasi sesuai durasi yang dipilih, dalam teks polos tanpa karakter dekoratif.</p><Button type="button" onClick={prepareHeygenPrompt} disabled={isCreatingPrompt || !persona || isOverLimit} className="mt-4 bg-violet-600 hover:bg-violet-700">{isCreatingPrompt ? 'Membuat naskah...' : 'Buat preview naskah dengan Groq AI'}</Button></div>{heygenPrompt && <div className="space-y-3 rounded-xl border border-violet-200 bg-violet-50 p-4 md:col-span-2"><div><p className="font-semibold text-violet-950">3. Preview naskah</p><p className="text-sm text-violet-800">Target sekitar {targetWordCount} kata untuk durasi {durationMinutes} menit. Saat ini {scriptWordCount} kata. Edit naskah bila perlu, kemudian konfirmasi untuk mengaktifkan pembuatan video.</p></div><textarea value={heygenPrompt} onChange={(event) => { setHeygenPrompt(event.target.value); setIsConfirmed(false); }} className="min-h-32 w-full rounded-md border border-violet-200 bg-white p-3 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-violet-400" /><label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={isConfirmed} onChange={(event) => setIsConfirmed(event.target.checked)} /> Saya telah meninjau dan menyetujui naskah ini.</label></div>}<div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end md:col-span-2"><Link href="/dashboard/personas"><Button type="button" variant="outline">Kelola persona</Button></Link><Button type="submit" disabled={isSubmitting || !persona || !heygenPrompt || !isConfirmed} className="min-w-44 bg-blue-600 hover:bg-blue-700">{isSubmitting ? 'Memproses video...' : 'Konfirmasi & buat video'}</Button></div></form></CardContent></Card>
     </div></div>;
