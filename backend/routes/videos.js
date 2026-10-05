@@ -56,9 +56,37 @@ router.get('/credits', verifyToken, async (req, res) => {
   }
 });
 
+router.get('/', verifyToken, async (req, res) => {
+  try {
+    const videos = await prisma.video.findMany({
+      where: { userId: req.user.id },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        topic: true,
+        persona: true,
+        duration: true,
+        durationSeconds: true,
+        script: true,
+        scriptDescription: true,
+        generatedPrompt: true,
+        videoUrl: true,
+        status: true,
+        createdAt: true,
+        elevenlabsVideoId: true,
+      },
+    });
+
+    return res.json({ success: true, data: videos });
+  } catch (error) {
+    console.error('List user videos error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal memuat riwayat materi.' });
+  }
+});
+
 router.post('/', verifyToken, async (req, res) => {
   try {
-    const { learnerName, topic, learningStyle, persona, duration, durationSeconds, accentType, script, generatedPrompt, elevenlabsVideoId, status = 'processing' } = req.body;
+    const { learnerName, topic, learningStyle, persona, duration, durationSeconds, accentType, script, scriptDescription, generatedPrompt, elevenlabsVideoId, status = 'processing' } = req.body;
     if (!topic || !learningStyle || !persona || !duration || !accentType) {
       return res.status(400).json({ error: 'Data materi video belum lengkap.' });
     }
@@ -80,6 +108,7 @@ router.post('/', verifyToken, async (req, res) => {
         durationSeconds: durationSeconds === undefined ? null : Number(durationSeconds),
         accentType,
         script: spokenScript || fullPrompt,
+        scriptDescription: typeof scriptDescription === 'string' ? scriptDescription.trim() : null,
         generatedPrompt: fullPrompt,
         elevenlabsVideoId,
         status,

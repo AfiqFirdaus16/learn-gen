@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { RefreshCw } from 'lucide-react';
@@ -28,7 +28,7 @@ async function readApiJson(response: Response) {
   return data;
 }
 
-export default function CreateVideoPage() {
+function CreateVideoContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [personaNotes, setPersonaNotes] = useState('');
@@ -162,17 +162,17 @@ export default function CreateVideoPage() {
 
     const createdAt = new Date().toISOString();
     const generatedPrompt = `Topic: ${topic}\nPersona: ${personaNotes.trim()}\nScript description: ${scriptDescription.trim()}\nDuration: ${durationLabel}\nProvider: D-ID\n\nFinal narration script:\n${script.trim()}`;
-    const attempt: VideoItem = { id: `video-${Date.now()}`, learnerName: 'Murid', topic, learningStyle: 'auditory', persona: personaNotes.trim(), duration: Math.ceil(durationMinutes), durationSeconds, accentType: 'd-id', script: script.trim(), generatedPrompt, status: 'Processing', createdAt };
+    const attempt: VideoItem = { id: `video-${Date.now()}`, learnerName: 'Murid', topic, learningStyle: 'auditory', persona: personaNotes.trim(), duration: Math.ceil(durationMinutes), durationSeconds, accentType: 'd-id', script: script.trim(), scriptDescription: scriptDescription.trim(), generatedPrompt, status: 'Processing', createdAt };
     saveVideo(attempt);
     const confirmedScriptId = `script-${Date.now()}`;
     saveConfirmedScript({ id: confirmedScriptId, topic, content: script.trim(), personaName: personaNotes.trim(), status: 'Confirmed', createdAt });
     setIsSubmitting(true);
     try {
-      const saveResponse = await authenticatedFetch(`${API_BASE_URL}/api/videos`, { method: 'POST', body: JSON.stringify({ learnerName: 'Murid', topic, learningStyle: 'auditory', persona: personaNotes.trim(), duration: Math.ceil(durationMinutes), durationSeconds, accentType: 'd-id', script: script.trim(), generatedPrompt, status: 'processing' }) });
+      const saveResponse = await authenticatedFetch(`${API_BASE_URL}/api/videos`, { method: 'POST', body: JSON.stringify({ learnerName: 'Murid', topic, learningStyle: 'auditory', persona: personaNotes.trim(), duration: Math.ceil(durationMinutes), durationSeconds, accentType: 'd-id', script: script.trim(), scriptDescription: scriptDescription.trim(), generatedPrompt, status: 'processing' }) });
       const savedVideo = await readApiJson(saveResponse);
-      await readApiJson(await authenticatedFetch(`${API_BASE_URL}/api/videos/create`, { method: 'POST', body: JSON.stringify({ videoId: savedVideo.data.id, scriptText: script.trim(), sourceUrl: sourceUrl.trim() }) }));
+      const createdVideo = await readApiJson(await authenticatedFetch(`${API_BASE_URL}/api/videos/create`, { method: 'POST', body: JSON.stringify({ videoId: savedVideo.data.id, scriptText: script.trim(), sourceUrl: sourceUrl.trim() }) }));
       updateConfirmedScriptStatus(confirmedScriptId, 'Submitted');
-      updateStoredVideo(attempt.id, { status: 'Completed' });
+      updateStoredVideo(attempt.id, { status: 'Processing', databaseVideoId: savedVideo.data.id, elevenlabsVideoId: createdVideo.data.dIdVideoId });
       await refreshCredits();
       router.push('/dosen/riwayat-materi');
     } catch (error) {
@@ -195,5 +195,13 @@ export default function CreateVideoPage() {
         <Card><CardHeader><CardTitle>Detail video</CardTitle></CardHeader><CardContent><form onSubmit={handleSubmit} className="space-y-5"><div className="grid gap-5 sm:grid-cols-3"><div><Label htmlFor="topic">Topik</Label><Input id="topic" value={topic} onChange={(event) => { setTopic(event.target.value); clearScript(); }} required /></div><div><Label htmlFor="duration">Durasi video ({durationUnit === 'seconds' ? 'detik' : 'menit'})</Label><Input id="duration" type="number" min="1" max={durationUnit === 'seconds' ? '600' : '10'} step="1" value={duration} onChange={(event) => { setDuration(event.target.value); clearScript(); }} required /></div><div><Label htmlFor="duration-unit">Satuan durasi</Label><select id="duration-unit" value={durationUnit} onChange={(event) => { setDurationUnit(event.target.value as 'seconds' | 'minutes'); clearScript(); }} className="mt-2 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"><option value="seconds">Detik</option><option value="minutes">Menit</option></select></div></div><p className="text-sm text-slate-600">Target video: {durationLabel}. Naskah dibuat sekitar {Math.max(1, Math.ceil(durationSeconds * 110 / 60))} kata.</p><div><Label htmlFor="source-url">URL gambar avatar D-ID</Label><Input id="source-url" type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://contoh.com/avatar.jpg" required /></div><Button type="button" onClick={generateScript} disabled={isCreatingScript || !personaNotes.trim()}>{isCreatingScript ? 'Membuat preview...' : 'Buat preview naskah dengan Gemini AI'}</Button>{script && <div className="space-y-3"><Label htmlFor="script">Preview naskah</Label><p className="text-sm text-slate-600">{wordCount} kata. Naskah ini akan diproses menjadi video oleh D-ID.</p><textarea id="script" value={script} onChange={(event) => { setScript(event.target.value); setIsConfirmed(false); }} className="min-h-40 w-full rounded-md border border-slate-300 bg-white p-3 text-sm" /><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={isConfirmed} onChange={(event) => setIsConfirmed(event.target.checked)} /> Saya telah meninjau naskah ini.</label></div>}<Button type="submit" disabled={isSubmitting || !script.trim() || !isConfirmed || creditsExceeded}>{isSubmitting ? 'Memproses video...' : 'Konfirmasi dan buat video'}</Button></form></CardContent></Card>
       </div>
     </div>
+  );
+}
+
+export default function CreateVideoPage() {
+  return (
+    <Suspense fallback={<main className="min-h-screen p-6 text-sm text-slate-600">Memuat form pembuatan video...</main>}>
+      <CreateVideoContent />
+    </Suspense>
   );
 }

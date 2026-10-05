@@ -1,5 +1,5 @@
-import MyVideosPage from '@/app/dashboard/my-videos/page';
+import MaterialHistory from './material-history';
 
 export default function RiwayatMateriPage() {
-  return <MyVideosPage />;
+  return <MaterialHistory />;
 }

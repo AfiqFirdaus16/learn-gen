@@ -77,6 +77,7 @@ model Video {
   
   // Generated Data
   script          String?  @db.Text
+  scriptDescription String? @db.Text
   generatedPrompt String?  @db.Text
   elevenlabsVideoId   String?  @unique
   videoUrl        String?

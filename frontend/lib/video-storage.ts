@@ -7,8 +7,11 @@ export interface VideoItem {
   personaId?: string;
   duration: number;
   durationSeconds?: number;
+  databaseVideoId?: number;
+  videoUrl?: string;
   accentType: string;
   script: string;
+  scriptDescription?: string;
   generatedPrompt: string;
   status: 'Pending' | 'Processing' | 'Completed' | 'PromptReady' | 'Failed';
   createdAt: string;
