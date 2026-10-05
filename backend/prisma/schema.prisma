@@ -72,6 +72,7 @@ model Video {
   learningStyle   String  // visual, auditory, kinesthetic, dll
   persona         String  // guru ramah, mentor serius, dll
   duration        Int     // dalam menit
+  durationSeconds Int?    // durasi target presisi dalam detik untuk video baru
   accentType      String  // British, American, dll
   
   // Generated Data

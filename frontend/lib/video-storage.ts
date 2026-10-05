@@ -6,6 +6,7 @@ export interface VideoItem {
   persona: string;
   personaId?: string;
   duration: number;
+  durationSeconds?: number;
   accentType: string;
   script: string;
   generatedPrompt: string;

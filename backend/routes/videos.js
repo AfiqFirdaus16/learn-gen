@@ -58,9 +58,12 @@ router.get('/credits', verifyToken, async (req, res) => {
 
 router.post('/', verifyToken, async (req, res) => {
   try {
-    const { learnerName, topic, learningStyle, persona, duration, accentType, script, generatedPrompt, elevenlabsVideoId, status = 'processing' } = req.body;
+    const { learnerName, topic, learningStyle, persona, duration, durationSeconds, accentType, script, generatedPrompt, elevenlabsVideoId, status = 'processing' } = req.body;
     if (!topic || !learningStyle || !persona || !duration || !accentType) {
       return res.status(400).json({ error: 'Data materi video belum lengkap.' });
+    }
+    if (durationSeconds !== undefined && (!Number.isInteger(Number(durationSeconds)) || Number(durationSeconds) < 1)) {
+      return res.status(400).json({ error: 'Durasi detik harus berupa bilangan bulat positif.' });
     }
 
     const spokenScript = typeof script === 'string' ? script.trim() : '';
@@ -74,6 +77,7 @@ router.post('/', verifyToken, async (req, res) => {
         learningStyle,
         persona,
         duration: Number(duration),
+        durationSeconds: durationSeconds === undefined ? null : Number(durationSeconds),
         accentType,
         script: spokenScript || fullPrompt,
         generatedPrompt: fullPrompt,

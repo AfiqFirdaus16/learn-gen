@@ -130,3 +130,42 @@
     @apply font-sans;
   }
 }
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes page-exit {
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+.page-transition {
+  flex: 1;
+  animation: page-enter 220ms ease-out both;
+}
+
+.page-transition-exit {
+  animation: page-exit 160ms ease-in both;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

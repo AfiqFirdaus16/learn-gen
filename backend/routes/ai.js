@@ -129,7 +129,7 @@ router.get('/check-connection', async (req, res) => {
 // ==========================================
 router.post('/generate-script', async (req, res) => {
     try {
-        const { topic, duration, learningStyle, persona, targetWordCount, notes } = req.body;
+        const { topic, duration, durationSeconds, learningStyle, persona, targetWordCount, notes } = req.body;
 
         // Validasi input
         if (!topic || !duration || !persona) {
@@ -152,7 +152,7 @@ Hasilkan HANYA naskah narasi tanpa komentar atau metadata apapun.`;
 
         const userPrompt = `Buatkan naskah edukasi dengan spesifikasi berikut:
 - Topik: ${topic}
-- Durasi: ${duration} menit
+    - Durasi: ${Number(durationSeconds) > 0 ? `${Number(durationSeconds)} detik` : `${duration} menit`}
 - Gaya Belajar: ${learningStyle}
 - Level Siswa: ${persona}
 - Target Panjang: sekitar ${targetWordCount || 'auto'} kata

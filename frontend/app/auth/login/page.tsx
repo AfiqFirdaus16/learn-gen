@@ -15,6 +15,7 @@ export default function LoginPage() {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [isNavigating, setIsNavigating] = useState(false);
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -52,7 +53,8 @@ export default function LoginPage() {
             const roleRoutes: Record<string, string> = { admin: '/admin', dosen: '/dosen', mahasiswa: '/mahasiswa' };
 
             localStorage.setItem('admin', JSON.stringify(payloadUser));
-            router.push(roleRoutes[role] || '/admin');
+            setIsNavigating(true);
+            window.setTimeout(() => router.replace(roleRoutes[role] || '/admin'), 160);
         } catch (err) {
             setError('Terjadi kesalahan. Silakan coba lagi.');
             console.error('Login error:', err);
@@ -62,7 +64,7 @@ export default function LoginPage() {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-slate-900 dark:to-slate-800 p-4">
+        <div className={`min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-slate-900 dark:to-slate-800 p-4 ${isNavigating ? 'page-transition-exit' : ''}`}>
             <Card className="w-full max-w-md shadow-2xl">
                 <CardHeader className="space-y-2 text-center">
                     <div className="flex justify-center mb-4">
@@ -98,7 +100,7 @@ export default function LoginPage() {
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 required
-                                disabled={isLoading}
+                                disabled={isLoading || isNavigating}
                                 className="p-3"
                             />
                         </div>
@@ -115,7 +117,7 @@ export default function LoginPage() {
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 required
-                                disabled={isLoading}
+                                disabled={isLoading || isNavigating}
                                 className="p-3"
                             />
                         </div>
@@ -126,7 +128,7 @@ export default function LoginPage() {
                             disabled={isLoading}
                             className="w-full py-2 text-base font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 transition-all"
                         >
-                            {isLoading ? (
+                            {isLoading || isNavigating ? (
                                 <span className="flex items-center justify-center gap-2">
                                     <span className="animate-spin">⏳</span> Loading...
                                 </span>
