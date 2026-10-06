@@ -14,6 +14,7 @@ type MaterialRecord = {
   persona: string;
   duration: number;
   durationSeconds: number | null;
+  accentType: string;
   script: string | null;
   scriptDescription: string | null;
   generatedPrompt: string | null;
@@ -66,8 +67,11 @@ export default function MaterialHistory() {
   }, []);
 
   useEffect(() => {
-    setHomeHref(getRoleHomeRoute());
-    void refreshHistory();
+    const timer = window.setTimeout(() => {
+      setHomeHref(getRoleHomeRoute());
+      void refreshHistory();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [refreshHistory]);
 
   useEffect(() => {
@@ -79,7 +83,7 @@ export default function MaterialHistory() {
         try {
           const response = await authenticatedFetch(`${API_BASE_URL}/api/videos/status/${video.id}`);
           const data = await readApiJson(response);
-          const providerStatus = String(data.data?.dIdStatus || 'processing').toLowerCase();
+          const providerStatus = String(data.data?.providerStatus || data.data?.dIdStatus || 'processing').toLowerCase();
           const status = providerStatus === 'done' ? 'completed' : ['failed', 'error'].includes(providerStatus) ? 'failed' : 'processing';
           return { id: video.id, status, videoUrl: data.data?.resultUrl || null };
         } catch {
@@ -130,12 +134,13 @@ export default function MaterialHistory() {
               const statusLabel = getStatusLabel(video.status);
               const completed = ['completed', 'done'].includes(video.status.toLowerCase()) && Boolean(video.videoUrl);
 
+              const videoProviderName = video.accentType === 'heygen' ? 'HeyGen' : video.accentType === 'elevenlabs' ? 'D-ID + ElevenLabs' : 'D-ID';
               return (
                 <Card key={video.id}>
                   <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
                     <div className="min-w-0">
                       <CardTitle className="break-words">{video.topic}</CardTitle>
-                      <p className="mt-1 text-sm text-slate-500">Dibuat {new Date(video.createdAt).toLocaleString('id-ID')}</p>
+                      <p className="mt-1 text-sm text-slate-500">Dibuat {new Date(video.createdAt).toLocaleString('id-ID')} · Provider {videoProviderName}</p>
                     </div>
                     <span className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold ${completed ? 'bg-green-100 text-green-800' : video.status.toLowerCase() === 'failed' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>{statusLabel}</span>
                   </CardHeader>
@@ -157,7 +162,7 @@ export default function MaterialHistory() {
                       ) : video.status.toLowerCase() === 'failed' ? (
                         <p className="text-sm text-red-700">Video gagal dibuat. Anda dapat mencoba membuat materi kembali.</p>
                       ) : (
-                        <p className="text-sm text-slate-600">Video sedang diproses D-ID. Status diperiksa otomatis setiap 10 detik.</p>
+                        <p className="text-sm text-slate-600">Video sedang diproses {videoProviderName}. Status diperiksa otomatis setiap 10 detik.</p>
                       )}
                     </div>
                   </CardContent>

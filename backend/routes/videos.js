@@ -17,18 +17,26 @@ const router = express.Router();
 // KONFIGURASI D-ID API
 // ==========================================
 const D_ID_API_BASE = 'https://api.d-id.com';
+const HEYGEN_API_BASE = 'https://api.heygen.com/v3';
 
 /**
  * Membuat header Authorization dengan Basic Auth untuk D-ID API
  * @returns {string} Authorization header value
  */
-async function getDIdAuthHeader(userId) {
+async function getSavedApiKey(userId, provider) {
+    const savedCredential = await prisma.apiCredential.findUnique({ where: { userId_category_provider: { userId, category: 'video', provider } } });
+    if (savedCredential) return decryptApiKey(savedCredential.encryptedApiKey);
+    if (provider === 'd-id') return process.env.D_ID_API_KEY || null;
+    return null;
+}
+
+async function getVideoProvider(userId) {
     const settings = await prisma.user.findUnique({ where: { id: userId }, select: { videoProvider: true } });
-    if (settings?.videoProvider && settings.videoProvider !== 'd-id') {
-        throw new Error(`${settings.videoProvider} sudah dapat dipilih dan disimpan, tetapi alur pembuatan video saat ini hanya mendukung D-ID.`);
-    }
-    const savedCredential = await prisma.apiCredential.findUnique({ where: { userId_category_provider: { userId, category: 'video', provider: 'd-id' } } });
-    const apiKey = savedCredential ? decryptApiKey(savedCredential.encryptedApiKey) : process.env.D_ID_API_KEY;
+    return settings?.videoProvider || 'd-id';
+}
+
+async function getDIdAuthHeader(userId) {
+    const apiKey = await getSavedApiKey(userId, 'd-id');
     if (!apiKey) throw new Error('API key D-ID belum disimpan. Buka Manajemen API untuk menambahkannya.');
     const encodedKey = Buffer.from(`${apiKey}:`).toString('base64');
     return `Basic ${encodedKey}`;
@@ -36,8 +44,22 @@ async function getDIdAuthHeader(userId) {
 
 router.get('/credits', verifyToken, async (req, res) => {
   try {
+    const provider = await getVideoProvider(req.user.id);
+    if (provider === 'heygen') {
+      const apiKey = await getSavedApiKey(req.user.id, 'heygen');
+      if (!apiKey) throw new Error('API key HeyGen belum disimpan. Buka Manajemen API untuk menambahkannya.');
+      const response = await axios.get(`${HEYGEN_API_BASE}/users/me`, { headers: { 'X-Api-Key': apiKey } });
+      const user = response.data?.data || {};
+      const remaining = user.billing_type === 'wallet'
+        ? Number(user.wallet?.remaining_balance)
+        : Number(user.subscription?.credits?.premium_credits?.remaining ?? 0) + Number(user.subscription?.credits?.add_on_credits?.remaining ?? 0);
+      return res.json({ success: true, data: { provider, total: null, remaining: Number.isFinite(remaining) ? remaining : null, unit: user.wallet?.currency || 'kredit' } });
+    }
     const response = await axios.get(`${D_ID_API_BASE}/credits`, {
-      headers: { Authorization: await getDIdAuthHeader(req.user.id) },
+      headers: {
+        Authorization: await getDIdAuthHeader(req.user.id),
+        ...(provider === 'elevenlabs' && await getSavedApiKey(req.user.id, 'elevenlabs') ? { 'x-api-key-external': JSON.stringify({ elevenlabs: await getSavedApiKey(req.user.id, 'elevenlabs') }) } : {}),
+      },
     });
     const credits = response.data?.credits || response.data;
     const total = Number(credits?.total ?? response.data?.total ?? 0);
@@ -48,6 +70,8 @@ router.get('/credits', verifyToken, async (req, res) => {
       data: {
         total: Number.isFinite(total) ? total : 0,
         remaining: Number.isFinite(remaining) ? remaining : 0,
+        provider,
+        unit: 'kredit',
       },
     });
   } catch (error) {
@@ -71,6 +95,7 @@ router.get('/', verifyToken, async (req, res) => {
         persona: true,
         duration: true,
         durationSeconds: true,
+        accentType: true,
         script: true,
         scriptDescription: true,
         generatedPrompt: true,
@@ -142,7 +167,7 @@ router.post('/', verifyToken, async (req, res) => {
  */
 router.post('/create', verifyToken, async (req, res) => {
   try {
-    const { videoId, scriptText, sourceUrl } = req.body;
+    const { videoId, scriptText, sourceUrl, voiceId } = req.body;
 
     // Validasi input
     if (!scriptText || !sourceUrl) {
@@ -178,44 +203,59 @@ router.post('/create', verifyToken, async (req, res) => {
       });
     }
 
-    // Kirim permintaan ke D-ID API
-    const authHeader = await getDIdAuthHeader(req.user.id);
-    const dIdResponse = await axios.post(
-      `${D_ID_API_BASE}/talks`,
-      {
-        source_url: sourceUrl,
-        script: {
-          type: 'text',
-          input: scriptText
-        }
-      },
-      {
-        headers: {
-          'Authorization': authHeader,
-          'Content-Type': 'application/json'
-        }
+    const provider = video.accentType || await getVideoProvider(req.user.id);
+    let providerVideoId;
+    let providerLabel;
+    if (provider === 'heygen') {
+      if (!voiceId?.trim()) return res.status(400).json({ success: false, error: 'Voice ID HeyGen wajib diisi.' });
+      const apiKey = await getSavedApiKey(req.user.id, 'heygen');
+      if (!apiKey) throw new Error('API key HeyGen belum disimpan. Buka Manajemen API untuk menambahkannya.');
+      const response = await axios.post(`${HEYGEN_API_BASE}/videos`, {
+        type: 'image',
+        image: { type: 'url', url: sourceUrl },
+        script: scriptText,
+        voice_id: voiceId.trim(),
+        title: video.topic,
+        resolution: '1080p',
+        aspect_ratio: 'auto',
+      }, { headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' } });
+      providerVideoId = response.data?.data?.video_id;
+      providerLabel = 'HeyGen';
+    } else {
+      const headers = { Authorization: await getDIdAuthHeader(req.user.id), 'Content-Type': 'application/json' };
+      let script = { type: 'text', input: scriptText };
+      if (provider === 'elevenlabs') {
+        if (!voiceId?.trim()) return res.status(400).json({ success: false, error: 'Voice ID ElevenLabs wajib diisi.' });
+        const elevenLabsKey = await getSavedApiKey(req.user.id, 'elevenlabs');
+        if (!elevenLabsKey) throw new Error('API key ElevenLabs belum disimpan. Buka Manajemen API untuk menambahkannya.');
+        headers['x-api-key-external'] = JSON.stringify({ elevenlabs: elevenLabsKey });
+        script = { type: 'text', input: scriptText, provider: { type: 'elevenlabs', voice_id: voiceId.trim() } };
       }
-    );
-
-    const dIdVideoId = dIdResponse.data.id;
+      const response = await axios.post(`${D_ID_API_BASE}/talks`, { source_url: sourceUrl, script }, { headers });
+      providerVideoId = response.data.id;
+      providerLabel = provider === 'elevenlabs' ? 'D-ID + ElevenLabs' : 'D-ID';
+    }
+    if (!providerVideoId) throw new Error(`${providerLabel || provider} tidak mengembalikan ID video.`);
 
     // Simpan D-ID video ID ke database
     const updatedVideo = await prisma.video.update({
       where: { id: parseInt(videoId) },
       data: {
-        elevenlabsVideoId: dIdVideoId,  // Reuse field untuk D-ID ID
+        elevenlabsVideoId: providerVideoId,
         status: 'processing'
       }
     });
 
-    console.log(`Video creation initiated with D-ID ID: ${dIdVideoId}`);
+    console.log(`Video creation initiated with ${providerLabel} ID: ${providerVideoId}`);
 
     return res.status(200).json({
       success: true,
-      message: 'Video sedang diproses oleh D-ID API.',
+      message: `Video sedang diproses oleh ${providerLabel}.`,
       data: {
         videoId: updatedVideo.id,
-        dIdVideoId: dIdVideoId,
+        providerVideoId,
+        provider,
+        dIdVideoId: provider === 'd-id' ? providerVideoId : undefined,
         status: 'processing',
         message: 'Silakan gunakan GET /status/:id untuk mengecek progres'
       }
@@ -233,7 +273,7 @@ router.post('/create', verifyToken, async (req, res) => {
       success: false,
       error: error.response?.data?.message || 'Gagal membuat video dengan D-ID API.',
       details: error.message,
-      provider: 'd-id'
+      provider: req.body?.provider || 'video-provider'
     });
   }
 });
@@ -278,23 +318,33 @@ router.get('/status/:id', verifyToken, async (req, res) => {
     }
 
     // Cek status dengan D-ID API
-    const authHeader = await getDIdAuthHeader(req.user.id);
-    const dIdResponse = await axios.get(
-      `${D_ID_API_BASE}/talks/${video.elevenlabsVideoId}`,
-      {
-        headers: {
-          'Authorization': authHeader
-        }
+    const provider = video.accentType || 'd-id';
+    let providerStatus;
+    let resultUrl;
+    let failureMessage;
+    if (provider === 'heygen') {
+      const apiKey = await getSavedApiKey(req.user.id, 'heygen');
+      if (!apiKey) throw new Error('API key HeyGen tidak tersedia untuk memeriksa status video ini.');
+      const response = await axios.get(`${HEYGEN_API_BASE}/videos/${video.elevenlabsVideoId}`, { headers: { 'X-Api-Key': apiKey } });
+      providerStatus = response.data?.data?.status;
+      resultUrl = response.data?.data?.video_url;
+      failureMessage = response.data?.data?.failure_message;
+    } else {
+      const headers = { Authorization: await getDIdAuthHeader(req.user.id) };
+      if (provider === 'elevenlabs') {
+        const elevenLabsKey = await getSavedApiKey(req.user.id, 'elevenlabs');
+        if (elevenLabsKey) headers['x-api-key-external'] = JSON.stringify({ elevenlabs: elevenLabsKey });
       }
-    );
+      const response = await axios.get(`${D_ID_API_BASE}/talks/${video.elevenlabsVideoId}`, { headers });
+      providerStatus = response.data.status;
+      resultUrl = response.data.result_url;
+      failureMessage = response.data.error?.description;
+    }
 
-    const dIdStatus = dIdResponse.data.status;
-    const resultUrl = dIdResponse.data.result_url;
-
-    let dbStatus = 'processing';
+    let dbStatus = providerStatus === 'completed' || providerStatus === 'done' ? 'completed' : 'processing';
 
     // Perbarui database jika video sudah selesai
-    if (dIdStatus === 'done' && resultUrl) {
+    if (['done', 'completed'].includes(String(providerStatus).toLowerCase()) && resultUrl) {
       await prisma.video.update({
         where: { id: parseInt(id) },
         data: {
@@ -307,7 +357,7 @@ router.get('/status/:id', verifyToken, async (req, res) => {
       console.log(`Video ${id} completed with URL: ${resultUrl}`);
     }
     // Perbarui database jika ada error
-    else if (dIdStatus === 'error' || dIdStatus === 'failed') {
+    else if (['error', 'failed'].includes(String(providerStatus).toLowerCase())) {
       await prisma.video.update({
         where: { id: parseInt(id) },
         data: {
@@ -322,13 +372,17 @@ router.get('/status/:id', verifyToken, async (req, res) => {
       success: true,
       data: {
         videoId: video.id,
-        dIdVideoId: video.elevenlabsVideoId,
-        dIdStatus: dIdStatus,
+        provider,
+        providerVideoId: video.elevenlabsVideoId,
+        providerStatus,
+        dIdVideoId: provider === 'd-id' ? video.elevenlabsVideoId : undefined,
+        dIdStatus: provider === 'd-id' ? providerStatus : undefined,
         resultUrl: resultUrl || null,
+        failureMessage: failureMessage || null,
         databaseStatus: dbStatus,
-        message: dIdStatus === 'done' 
+        message: ['done', 'completed'].includes(String(providerStatus).toLowerCase())
           ? 'Video siap ditonton!' 
-          : dIdStatus === 'processing' 
+          : ['processing', 'pending', 'created'].includes(String(providerStatus).toLowerCase())
             ? 'Video masih diproses. Cek kembali dalam beberapa saat.'
             : 'Video gagal diproses. Silakan coba lagi.'
       }
