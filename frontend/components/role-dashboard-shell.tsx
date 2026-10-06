@@ -50,24 +50,24 @@ export function RoleDashboardShell({ role, children }: { role: Role; children: R
 
   const items = navigation[role];
 
-  return <div className={`min-h-screen bg-slate-100 text-slate-800 ${isLoggingOut ? 'page-transition-exit' : ''}`}>
-    <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col bg-gradient-to-b from-indigo-500 to-blue-700 px-5 py-6 text-white shadow-xl md:flex">
-      <Link href={`/${role}`} className="flex items-center gap-3 border-b border-white/15 pb-6">
-        <div className="flex size-10 items-center justify-center rounded-full bg-white/15 text-xl font-black">L</div>
+  return <div className={`min-h-screen bg-slate-50 text-slate-800 ${isLoggingOut ? 'page-transition-exit' : ''}`}>
+    <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-slate-200 bg-white px-5 py-6 text-slate-700 shadow-sm md:flex">
+      <Link href={`/${role}`} className="flex items-center gap-3 border-b border-slate-200 pb-6">
+        <div className="flex size-10 items-center justify-center rounded-xl bg-[#123b78] text-xl font-black text-white">L</div>
         <div>
-          <p className="font-bold tracking-wide">LEARN-GEN</p>
-          <p className="text-xs text-indigo-100">Portal {roleLabel[role]}</p>
+          <p className="font-bold tracking-wide text-[#123b78]">LEARN-GEN</p>
+          <p className="text-xs text-slate-500">Portal {roleLabel[role]}</p>
         </div>
       </Link>
-      <nav className="mt-7 space-y-2">{items.map((item) => { const Icon = item.icon; const active = pathname === item.href; return <Link key={item.href} href={item.href} className={`flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-semibold transition ${active ? 'bg-white/20 shadow-sm' : 'text-indigo-50 hover:bg-white/10'}`}><Icon className="size-4" />{item.label}</Link>; })}</nav>
-      <div className="mt-auto border-t border-white/15 pt-5"><button type="button" onClick={handleLogout} disabled={isLoggingOut} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-indigo-50 hover:bg-white/10 disabled:opacity-60"><LogOut className="size-4" />Keluar</button></div>
+      <nav className="mt-7 space-y-2">{items.map((item) => { const Icon = item.icon; const active = pathname === item.href; return <Link key={item.href} href={item.href} className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${active ? 'bg-[#123b78] text-white shadow-sm' : 'text-slate-600 hover:bg-blue-50 hover:text-[#123b78]'}`}><Icon className="size-4" />{item.label}</Link>; })}</nav>
+      <div className="mt-auto border-t border-slate-200 pt-5"><button type="button" onClick={handleLogout} disabled={isLoggingOut} className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-slate-600 transition-colors hover:bg-blue-50 hover:text-[#123b78] disabled:opacity-60"><LogOut className="size-4" />Keluar</button></div>
     </aside>
     <div className="md:pl-64">
       <header className="sticky top-0 z-10 flex h-20 items-center justify-end border-b border-slate-200 bg-white/95 px-5 shadow-sm backdrop-blur md:px-8">
         <div className="flex w-full items-center justify-between md:w-auto md:justify-end md:gap-5">
-          <p className="font-bold text-indigo-600 md:hidden">LEARN-GEN</p>
+          <p className="font-bold text-[#123b78] md:hidden">LEARN-GEN</p>
           <div className="flex items-center gap-3">
-            <button type="button" className="rounded-full p-2 text-slate-500 hover:bg-slate-100" aria-label="Notifikasi">
+            <button type="button" className="rounded-full p-2 text-slate-500 transition-colors hover:bg-blue-50 hover:text-[#123b78]" aria-label="Notifikasi">
               <Bell className="size-5" />
             </button>
             <div className="h-8 w-px bg-slate-200" />
@@ -75,11 +75,11 @@ export function RoleDashboardShell({ role, children }: { role: Role; children: R
               <p className="text-sm font-semibold">{roleLabel[role]}</p>
               <p className="text-xs text-slate-500">Portal pembelajaran</p>
             </div>
-            <div className="flex size-9 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">{role === 'admin' ? 'A' : role === 'dosen' ? 'D' : 'M'}</div>
+            <div className="flex size-9 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-[#123b78]">{role === 'admin' ? 'A' : role === 'dosen' ? 'D' : 'M'}</div>
           </div>
         </div>
       </header>
-      <main className="p-5 md:p-8">{children}</main>
+      <main className="min-h-[calc(100vh-5rem)] bg-slate-50 p-5 md:p-8">{children}</main>
     </div>
   </div>;
 }
