@@ -137,7 +137,7 @@ function CreateVideoContent() {
     if (!scriptDescription.trim()) return setErrorMsg('Tulis deskripsi naskah terlebih dahulu.');
     setIsCreatingScript(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/ai/generate-script`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/api/ai/generate-script`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic, persona: personaNotes.trim(), learningStyle: 'auditory', duration: durationMinutes, durationSeconds, targetWordCount: Math.max(1, Math.ceil(durationSeconds * 110 / 60)), notes: scriptDescription.trim() }),

@@ -285,3 +285,8 @@ Untuk pertanyaan atau masalah, silakan buat issue di repository.
 
 **Last Updated**: 2026-07-27
 **Status**: 🚀 Development - Login & Auth Complete
+# Konfigurasi Manajemen API
+
+API key disimpan per akun pada tabel `ApiCredential` dan dienkripsi backend menggunakan AES-256-GCM. Atur `API_KEY_ENCRYPTION_SECRET` di environment backend dengan secret acak yang stabil (minimal 32 karakter) sebelum memakai fitur; jika belum diatur, backend memakai `JWT_SECRET` yang sudah dikonfigurasi. Jangan mengganti secret enkripsi setelah API key tersimpan kecuali key lama sudah diekspor/dihapus karena key tersebut tidak dapat didekripsi lagi.
+
+Terapkan migrasi Prisma baru pada database backend dengan `npm run migrate` dari folder `backend`, lalu jalankan `npm run generate` agar Prisma Client memuat model baru. Key disimpan tersendiri untuk tiap pengguna dan provider. Pemilihan Gemini, Grok, atau Groq dipakai oleh endpoint pembuatan naskah. Integrasi produksi video yang tersedia saat ini menggunakan D-ID; HeyGen dan ElevenLabs dapat disimpan dan dipilih tetapi belum terhubung ke alur pembuatan video.

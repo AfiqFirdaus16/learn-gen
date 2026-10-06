@@ -35,6 +35,9 @@ model User {
   materi    Materi[] // Relasi tambahan untuk Dosen/Admin membuat materi
   tests     Test[]
   personas  Persona[]
+  apiCredentials ApiCredential[]
+  promptProvider String @default("gemini")
+  videoProvider  String @default("d-id")
   
   // Pelacakan Waktu (Audit Trail)
   createdAt DateTime @default(now()) 
@@ -123,4 +126,17 @@ model Kelas {
   namaKelas String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model ApiCredential {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category        String
+  provider        String
+  encryptedApiKey String   @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, category, provider])
 }

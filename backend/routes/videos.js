@@ -5,6 +5,7 @@ import pg from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import pkg from '@prisma/client';
 import { verifyToken } from './auth.js';
+import { decryptApiKey } from '../lib/api-key-crypto.js';
 
 const { Pool } = pg;
 const { PrismaClient } = pkg;
@@ -15,25 +16,28 @@ const router = express.Router();
 // ==========================================
 // KONFIGURASI D-ID API
 // ==========================================
-const D_ID_API_KEY = process.env.D_ID_API_KEY;
 const D_ID_API_BASE = 'https://api.d-id.com';
 
 /**
  * Membuat header Authorization dengan Basic Auth untuk D-ID API
  * @returns {string} Authorization header value
  */
-function getDIdAuthHeader() {
-    if (!D_ID_API_KEY) {
-        throw new Error('D_ID_API_KEY tidak ditemukan di environment variables');
+async function getDIdAuthHeader(userId) {
+    const settings = await prisma.user.findUnique({ where: { id: userId }, select: { videoProvider: true } });
+    if (settings?.videoProvider && settings.videoProvider !== 'd-id') {
+        throw new Error(`${settings.videoProvider} sudah dapat dipilih dan disimpan, tetapi alur pembuatan video saat ini hanya mendukung D-ID.`);
     }
-    const encodedKey = Buffer.from(`${D_ID_API_KEY}:`).toString('base64');
+    const savedCredential = await prisma.apiCredential.findUnique({ where: { userId_category_provider: { userId, category: 'video', provider: 'd-id' } } });
+    const apiKey = savedCredential ? decryptApiKey(savedCredential.encryptedApiKey) : process.env.D_ID_API_KEY;
+    if (!apiKey) throw new Error('API key D-ID belum disimpan. Buka Manajemen API untuk menambahkannya.');
+    const encodedKey = Buffer.from(`${apiKey}:`).toString('base64');
     return `Basic ${encodedKey}`;
 }
 
 router.get('/credits', verifyToken, async (req, res) => {
   try {
     const response = await axios.get(`${D_ID_API_BASE}/credits`, {
-      headers: { Authorization: getDIdAuthHeader() },
+      headers: { Authorization: await getDIdAuthHeader(req.user.id) },
     });
     const credits = response.data?.credits || response.data;
     const total = Number(credits?.total ?? response.data?.total ?? 0);
@@ -175,7 +179,7 @@ router.post('/create', verifyToken, async (req, res) => {
     }
 
     // Kirim permintaan ke D-ID API
-    const authHeader = getDIdAuthHeader();
+    const authHeader = await getDIdAuthHeader(req.user.id);
     const dIdResponse = await axios.post(
       `${D_ID_API_BASE}/talks`,
       {
@@ -274,7 +278,7 @@ router.get('/status/:id', verifyToken, async (req, res) => {
     }
 
     // Cek status dengan D-ID API
-    const authHeader = getDIdAuthHeader();
+    const authHeader = await getDIdAuthHeader(req.user.id);
     const dIdResponse = await axios.get(
       `${D_ID_API_BASE}/talks/${video.elevenlabsVideoId}`,
       {

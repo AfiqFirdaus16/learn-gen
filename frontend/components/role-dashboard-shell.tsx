@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Bell, BookOpen, ClipboardCheck, LayoutDashboard, LogOut, Users, Video } from 'lucide-react';
+import { Bell, BookOpen, ClipboardCheck, KeyRound, LayoutDashboard, LogOut, Users, Video } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -13,12 +13,14 @@ type Role = 'admin' | 'dosen' | 'mahasiswa';
 const navigation = {
   admin: [
     { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
+    { label: 'Manajemen API', href: '/dashboard/api-keys', icon: KeyRound },
     { label: 'Manajemen Pengguna', href: '/admin/users', icon: Users },
     { label: 'Manajemen Materi', href: '/admin/materials', icon: BookOpen },
     { label: 'Manajemen Tes', href: '/admin/tests', icon: ClipboardCheck },
   ],
   dosen: [
     { label: 'Dashboard', href: '/dosen', icon: LayoutDashboard },
+    { label: 'Manajemen API', href: '/dashboard/api-keys', icon: KeyRound },
     { label: 'Buat Materi', href: '/dosen/buat-materi', icon: Video },
     { label: 'Riwayat Materi', href: '/dosen/riwayat-materi', icon: ClipboardCheck },
     { label: 'Pengaturan Materi', href: '/dosen/set-materi', icon: BookOpen },
@@ -26,6 +28,7 @@ const navigation = {
   ],
   mahasiswa: [
     { label: 'Dashboard', href: '/mahasiswa', icon: LayoutDashboard },
+    { label: 'Manajemen API', href: '/dashboard/api-keys', icon: KeyRound },
     { label: 'Materi', href: '/mahasiswa/materi', icon: BookOpen },
     { label: 'Tes', href: '/mahasiswa/test', icon: ClipboardCheck },
   ],

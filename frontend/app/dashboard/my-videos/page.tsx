@@ -99,16 +99,14 @@ export default function CreateVideoPage() {
         setIsCreatingPrompt(true);
         try {
             const requestBody = { topic, duration: durationMinutes, learningStyle: styleLabels[persona.learningStyle], persona: `${persona.name}, level ${persona.level}`, targetWordCount, notes: persona.notes };
-            let response = await fetch(`${API_BASE_URL}/api/ai/generate-script`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
-            let json;
+            let response = await authenticatedFetch(`${API_BASE_URL}/api/ai/generate-script`, { method: 'POST', body: JSON.stringify(requestBody) });
             if (response.status === 404) {
-                response = await fetch(`${API_BASE_URL}/api/ai/generate-elevenlabs-prompt`, {
+                response = await authenticatedFetch(`${API_BASE_URL}/api/ai/generate-elevenlabs-prompt`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ videoConfig: { topic, persona: persona.name, level: persona.level, learningStyle: styleLabels[persona.learningStyle], tone: persona.tone, duration: durationMinutes, targetWordCount, notes: persona.notes } }),
                 });
             }
-            json = await readApiJson(response);
+            const json = await readApiJson(response);
             if (!json.success) throw new Error(json.error || 'Gagal membuat naskah video.');
             setVideoScript(cleanScript(json.data.script));
             setIsConfirmed(false);
