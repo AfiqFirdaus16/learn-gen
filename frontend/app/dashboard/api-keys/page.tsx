@@ -16,6 +16,34 @@ type Configuration = { providers: { video: Provider[]; voice: Provider[] }; sele
 type UserRole = 'admin' | 'dosen' | 'mahasiswa';
 
 const categoryLabels = { video: 'API Key Video', voice: 'API Key Suara' } as const;
+const fallbackProviders: Configuration['providers'] = {
+  video: [
+    { id: 'd-id', name: 'D-ID', url: 'https://studio.d-id.com/account-settings' },
+    { id: 'heygen', name: 'HeyGen', url: 'https://app.heygen.com/settings?nav=API' },
+  ],
+  voice: [
+    { id: 'd-id', name: 'D-ID (suara bawaan)', url: 'https://studio.d-id.com/account-settings' },
+    { id: 'elevenlabs', name: 'ElevenLabs', url: 'https://elevenlabs.io/app/settings/api-keys' },
+  ],
+};
+
+function normalizeConfiguration(value: unknown): Configuration {
+  const raw = value && typeof value === 'object' ? value as Partial<Configuration> : {};
+  const videoProviders = Array.isArray(raw.providers?.video) && raw.providers.video.length ? raw.providers.video : fallbackProviders.video;
+  const voiceProviders = Array.isArray(raw.providers?.voice) && raw.providers.voice.length ? raw.providers.voice : fallbackProviders.voice;
+  const credentials = Array.isArray(raw.credentials)
+    ? raw.credentials.filter((credential): credential is Credential => credential?.category === 'video' || credential?.category === 'voice')
+    : [];
+
+  return {
+    providers: { video: videoProviders, voice: voiceProviders },
+    selected: {
+      video: videoProviders.some((provider) => provider.id === raw.selected?.video) ? raw.selected?.video || 'd-id' : 'd-id',
+      voice: voiceProviders.some((provider) => provider.id === raw.selected?.voice) ? raw.selected?.voice || 'd-id' : 'd-id',
+    },
+    credentials,
+  };
+}
 
 async function requestJson(response: Response) {
   const data = await response.json().catch(() => ({}));
@@ -33,7 +61,7 @@ export default function ApiKeysPage() {
 
   const load = useCallback(async () => {
     const result = await requestJson(await authenticatedFetch(`${API_BASE_URL}/api/api-keys`));
-    setConfig(result.data as Configuration);
+    setConfig(normalizeConfiguration(result.data));
   }, []);
 
   useEffect(() => {
@@ -87,12 +115,13 @@ export default function ApiKeysPage() {
   function providerForm(category: 'video' | 'voice') {
     if (!config) return null;
     const providerId = config.selected[category] || (category === 'video' ? 'd-id' : 'd-id');
-    const selectedProvider = config.providers[category].find((provider) => provider.id === providerId);
+    const providers = config.providers[category] || fallbackProviders[category];
+    const selectedProvider = providers.find((provider) => provider.id === providerId);
     const saved = hasSavedKey(category);
     return <Card>
       <CardHeader><CardTitle>{categoryLabels[category]}</CardTitle><p className="text-sm text-slate-600">{category === 'video' ? 'Pilih provider untuk merender avatar video.' : 'Pilih provider suara. D-ID menggunakan suara bawaan; ElevenLabs memerlukan API key dan Voice ID.'}</p></CardHeader>
       <CardContent className="space-y-5">
-        <div className="space-y-2"><Label htmlFor={`${category}-provider`}>Provider {category === 'video' ? 'Video' : 'Suara'}</Label><select id={`${category}-provider`} value={providerId} onChange={(event) => changeProvider(category, event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm">{config.providers[category].map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select></div>
+        <div className="space-y-2"><Label htmlFor={`${category}-provider`}>Provider {category === 'video' ? 'Video' : 'Suara'}</Label><select id={`${category}-provider`} value={providerId} onChange={(event) => changeProvider(category, event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm">{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select></div>
         {(category === 'video' || providerId === 'elevenlabs') && <div className="space-y-2"><Label htmlFor={`${category}-key`}>API key {saved && <span className="font-normal text-emerald-700">(sudah tersimpan; isi hanya untuk mengganti)</span>}</Label><Input id={`${category}-key`} type="password" autoComplete="new-password" value={apiKeys[category]} onChange={(event) => setApiKeys((current) => ({ ...current, [category]: event.target.value }))} placeholder={saved ? '••••••••••••' : `Tempel API key ${category === 'video' ? 'video' : 'suara'} di sini`} /></div>}
         {category === 'video' && <a href={selectedProvider?.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-indigo-700 hover:underline">Buat API key di {selectedProvider?.name}<ExternalLink className="size-4" /></a>}
       </CardContent>
@@ -105,7 +134,7 @@ export default function ApiKeysPage() {
     {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
     {!config ? <div className="flex items-center gap-2 p-8 text-slate-600"><LoaderCircle className="size-4 animate-spin" />Memuat pengaturan API...</div> : <>{providerForm('video')}{providerForm('voice')}
       <Button type="button" onClick={() => void save()} disabled={Boolean(busy)}><Save className="mr-2 size-4" />{busy === 'save' ? 'Menyimpan...' : 'Simpan Pengaturan'}</Button>
-      <Card><CardHeader><CardTitle>API key tersimpan</CardTitle><p className="text-sm text-slate-600">Key dienkripsi dan hanya dapat dikelola oleh akun Anda.</p></CardHeader><CardContent>{config.credentials.length === 0 ? <p className="rounded-lg bg-slate-50 p-5 text-center text-sm text-slate-500">Belum ada API key video atau suara tersimpan.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm"><thead><tr className="border-b text-slate-500"><th className="pb-3 font-medium">Kategori</th><th className="pb-3 font-medium">Provider</th><th className="pb-3 font-medium">API key</th><th className="pb-3 font-medium">Terakhir diubah</th><th className="pb-3" /></tr></thead><tbody>{config.credentials.map((credential) => { const name = config.providers[credential.category].find((provider) => provider.id === credential.provider)?.name || credential.provider; return <tr key={`${credential.category}-${credential.provider}`} className="border-b last:border-0"><td className="py-3">{categoryLabels[credential.category]}</td><td className="py-3 font-medium">{name}</td><td className="py-3 font-mono text-slate-600">{credential.maskedKey}</td><td className="py-3 text-slate-500">{new Date(credential.updatedAt).toLocaleDateString('id-ID')}</td><td className="py-3 text-right"><Button type="button" variant="outline" size="sm" aria-label={`Hapus key ${name}`} onClick={() => void remove(credential)} disabled={Boolean(busy)}><Trash2 className="size-4 text-red-600" /></Button></td></tr>; })}</tbody></table></div>}</CardContent></Card>
+      <Card><CardHeader><CardTitle>API key tersimpan</CardTitle><p className="text-sm text-slate-600">Key dienkripsi dan hanya dapat dikelola oleh akun Anda.</p></CardHeader><CardContent>{config.credentials.length === 0 ? <p className="rounded-lg bg-slate-50 p-5 text-center text-sm text-slate-500">Belum ada API key video atau suara tersimpan.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm"><thead><tr className="border-b text-slate-500"><th className="pb-3 font-medium">Kategori</th><th className="pb-3 font-medium">Provider</th><th className="pb-3 font-medium">API key</th><th className="pb-3 font-medium">Terakhir diubah</th><th className="pb-3" /></tr></thead><tbody>{config.credentials.map((credential) => { const providers = config.providers[credential.category] || fallbackProviders[credential.category]; const name = providers.find((provider) => provider.id === credential.provider)?.name || credential.provider; return <tr key={`${credential.category}-${credential.provider}`} className="border-b last:border-0"><td className="py-3">{categoryLabels[credential.category]}</td><td className="py-3 font-medium">{name}</td><td className="py-3 font-mono text-slate-600">{credential.maskedKey}</td><td className="py-3 text-slate-500">{new Date(credential.updatedAt).toLocaleDateString('id-ID')}</td><td className="py-3 text-right"><Button type="button" variant="outline" size="sm" aria-label={`Hapus key ${name}`} onClick={() => void remove(credential)} disabled={Boolean(busy)}><Trash2 className="size-4 text-red-600" /></Button></td></tr>; })}</tbody></table></div>}</CardContent></Card>
     </>}
   </div></RoleDashboardShell> : <main className="p-8 text-sm text-slate-600">Memuat manajemen API...</main>;
 }
