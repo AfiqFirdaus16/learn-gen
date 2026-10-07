@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -37,7 +37,7 @@ async function readApiJson(response: Response) {
     return data;
 }
 
-export default function CreateVideoPage() {
+function MyVideosContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const [personas, setPersonas] = useState<PersonaItem[]>([]);
@@ -199,4 +199,12 @@ export default function CreateVideoPage() {
         <Card><CardHeader><CardTitle>1. Pilih persona</CardTitle></CardHeader><CardContent>{personas.length === 0 ? <div className="rounded-xl border border-dashed border-violet-300 bg-violet-50 p-5"><p className="font-semibold">Belum ada persona yang tersedia</p><p className="mt-1 text-sm text-slate-600">Buat persona berisi gaya belajar, avatar, dan suara sebelum membuat video.</p><Link href="/dashboard/personas"><Button className="mt-4 bg-violet-600 hover:bg-violet-700">Buat persona</Button></Link></div> : <div className="space-y-3"><Label>Persona untuk video ini</Label><Select value={selectedPersonaId} onValueChange={(value) => { setSelectedPersonaId(value ?? ''); clearDraft(); }}><SelectTrigger className="w-full"><SelectValue placeholder="Pilih persona yang akan digunakan" /></SelectTrigger><SelectContent>{personas.map((item) => <SelectItem key={item.id} value={item.id}>{item.name} · {styleLabels[item.learningStyle]}</SelectItem>)}</SelectContent></Select>{persona && <div className="grid gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm sm:grid-cols-3"><div><p className="text-xs font-semibold uppercase text-blue-600">Target audiens</p><p className="font-semibold">Murid {persona.level}</p><p>{persona.tone}</p></div><div><p className="text-xs font-semibold uppercase text-blue-600">Cara belajar</p><p>{styleLabels[persona.learningStyle]}</p></div><div><p className="text-xs font-semibold uppercase text-blue-600">Presenter</p><p>{persona.avatarName} · {persona.voiceName}</p></div></div>}</div>}</CardContent></Card>
         <Card><CardHeader><CardTitle>2. Detail video</CardTitle></CardHeader><CardContent><form onSubmit={handleSubmit} className="grid gap-5 md:grid-cols-2"><div className="space-y-2"><Label htmlFor="topic">Topik</Label><Input id="topic" value={topic} onChange={(event) => { setTopic(event.target.value); clearDraft(); }} placeholder="Contoh: Algoritma Sorting" required /></div><div className="space-y-2"><Label htmlFor="duration">Durasi video (menit)</Label><Input id="duration" type="number" min="1" max="10" value={duration} onChange={(event) => { setDuration(event.target.value); clearDraft(); }} required /></div><div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 md:col-span-2"><Label>Naskah Video</Label><p className="mt-2 text-sm text-slate-600">Groq AI membuat naskah narasi sesuai durasi yang dipilih, dalam teks polos tanpa karakter dekoratif.</p><Button type="button" onClick={prepareHeygenPrompt} disabled={isCreatingPrompt || !persona || isOverLimit} className="mt-4 bg-violet-600 hover:bg-violet-700">{isCreatingPrompt ? 'Membuat naskah...' : 'Buat preview naskah dengan Groq AI'}</Button></div>{heygenPrompt && <div className="space-y-3 rounded-xl border border-violet-200 bg-violet-50 p-4 md:col-span-2"><div><p className="font-semibold text-violet-950">3. Preview naskah</p><p className="text-sm text-violet-800">Target sekitar {targetWordCount} kata untuk durasi {durationMinutes} menit. Saat ini {scriptWordCount} kata. Edit naskah bila perlu, kemudian konfirmasi untuk mengaktifkan pembuatan video.</p></div><textarea value={heygenPrompt} onChange={(event) => { setHeygenPrompt(event.target.value); setIsConfirmed(false); }} className="min-h-32 w-full rounded-md border border-violet-200 bg-white p-3 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-violet-400" /><label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={isConfirmed} onChange={(event) => setIsConfirmed(event.target.checked)} /> Saya telah meninjau dan menyetujui naskah ini.</label></div>}<div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end md:col-span-2"><Link href="/dashboard/personas"><Button type="button" variant="outline">Kelola persona</Button></Link><Button type="submit" disabled={isSubmitting || !persona || !heygenPrompt || !isConfirmed} className="min-w-44 bg-blue-600 hover:bg-blue-700">{isSubmitting ? 'Memproses video...' : 'Konfirmasi & buat video'}</Button></div></form></CardContent></Card>
     </div></div>;
+}
+
+export default function MyVideosPage() {
+    return (
+        <Suspense fallback={<div>Memuat daftar video...</div>}>
+            <MyVideosContent />
+        </Suspense>
+    );
 }
