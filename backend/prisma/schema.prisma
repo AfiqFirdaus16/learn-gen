@@ -38,6 +38,7 @@ model User {
   apiCredentials ApiCredential[]
   promptProvider String @default("gemini")
   videoProvider  String @default("d-id")
+  voiceProvider  String @default("d-id")
   
   // Pelacakan Waktu (Audit Trail)
   createdAt DateTime @default(now()) 
@@ -78,6 +79,7 @@ model Video {
   durationSeconds Int?    // durasi target presisi dalam detik untuk video baru
   accentType      String  // British, American, dll
   provider        String  @default("d-id")
+  voiceProvider   String  @default("d-id")
   
   // Generated Data
   script          String?  @db.Text

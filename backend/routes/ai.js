@@ -49,7 +49,9 @@ async function generatePromptContent(userPrompt, systemInstruction = null) {
         if (!apiKey) throw new Error('GEMINI_API_KEY belum dikonfigurasi pada environment backend.');
 
         const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-        const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: modelName, systemInstruction });
+        const requiredEducationInstruction = 'Always write the narration script in English. Use simple, child-friendly vocabulary and short, clear sentences suitable for elementary school students. Explain educational ideas in an easy-to-understand way.';
+        const effectiveSystemInstruction = [requiredEducationInstruction, systemInstruction].filter(Boolean).join('\n\n');
+        const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: modelName, systemInstruction: effectiveSystemInstruction });
         const result = await model.generateContent({ contents: [{ role: 'user', parts: [{ text: userPrompt }] }], generationConfig: { temperature: 0.7, topP: 0.95, topK: 40, maxOutputTokens: 2048 } });
         const text = result.response.text();
         if (!text) throw new Error('Gemini tidak mengembalikan respons.');
