@@ -14,12 +14,10 @@ import { getStoredVideos, saveVideo, updateStoredVideo, type VideoItem } from '@
 import { saveConfirmedScript, updateConfirmedScriptStatus } from '@/lib/confirmed-script-storage';
 
 type ProviderConfiguration = {
-  selected: { prompt: string; video: string };
-  credentials: { category: 'prompt' | 'video'; provider: string; maskedKey: string }[];
+  credentials: { category: 'video'; provider: string; maskedKey: string }[];
 };
 
 const videoProviderNames: Record<string, string> = { 'd-id': 'D-ID', heygen: 'HeyGen', elevenlabs: 'ElevenLabs' };
-const promptProviderNames: Record<string, string> = { gemini: 'Gemini', grok: 'Grok', groq: 'Groq' };
 
 function cleanScript(value: string) {
   return value
@@ -74,7 +72,7 @@ function CreateVideoContent() {
   const estimatedCredits = Number((durationSeconds / 60).toFixed(2));
   const creditsExceeded = Boolean(credits && credits.remaining !== null && credits.provider !== 'heygen' && estimatedCredits > credits.remaining);
   const videoProvider = aiProvider;
-  const promptProviderName = promptProviderNames[providerConfig?.selected.prompt || 'gemini'] || 'AI pilihan';
+  const promptProviderName = 'Gemini';
   const videoProviderName = videoProviderNames[videoProvider] || videoProvider;
   const hasSavedCredential = (provider: string) => Boolean(providerConfig?.credentials.some((credential) => credential.category === 'video' && credential.provider === provider));
   const wordCount = script.trim() ? script.trim().split(/\s+/).length : 0;

@@ -1,20 +1,13 @@
 import 'dotenv/config';
 import express from 'express';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import pg from 'pg';
-import { PrismaPg } from '@prisma/adapter-pg';
-import pkg from '@prisma/client';
 import { verifyToken } from './auth.js';
-import { decryptApiKey } from '../lib/api-key-crypto.js';
 
 const router = express.Router();
 
 // ==========================================
 // KONFIGURASI GEMINI
 // ==========================================
-const { Pool } = pg;
-const { PrismaClient } = pkg;
-const prisma = new PrismaClient({ adapter: new PrismaPg(new Pool({ connectionString: process.env.DATABASE_URL })) });
 
 // ==========================================
 // UTILITY: NORMALISASI NASKAH
@@ -50,33 +43,17 @@ function normalizeSpokenScript(rawValue) {
 // ==========================================
 // UTILITY: GENERATE CONTENT DENGAN GEMINI
 // ==========================================
-async function generatePromptContent(userId, userPrompt, systemInstruction = null) {
+async function generatePromptContent(userPrompt, systemInstruction = null) {
     try {
-        const settings = await prisma.user.findUnique({ where: { id: userId }, select: { promptProvider: true } });
-        const provider = settings?.promptProvider || 'gemini';
-        const credential = await prisma.apiCredential.findUnique({ where: { userId_category_provider: { userId, category: 'prompt', provider } } });
-        const apiKey = credential ? decryptApiKey(credential.encryptedApiKey) : provider === 'gemini' ? process.env.GEMINI_API_KEY : null;
-        if (!apiKey) throw new Error(`API key ${provider} belum disimpan. Buka Manajemen API untuk menambahkannya.`);
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (!apiKey) throw new Error('GEMINI_API_KEY belum dikonfigurasi pada environment backend.');
 
-        if (provider === 'gemini') {
-            const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-            const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: modelName, systemInstruction });
-            const result = await model.generateContent({ contents: [{ role: 'user', parts: [{ text: userPrompt }] }], generationConfig: { temperature: 0.7, topP: 0.95, topK: 40, maxOutputTokens: 2048 } });
-            const text = result.response.text();
-            if (!text) throw new Error('Gemini tidak mengembalikan respons.');
-            return { text: text.trim(), usage: { promptTokens: result.usageMetadata?.promptTokenCount || 0, outputTokens: result.usageMetadata?.candidatesTokenCount || 0, totalTokens: result.usageMetadata?.totalTokenCount || 0 } };
-        }
-
-        const groq = provider === 'groq';
-        const endpoint = groq ? 'https://api.groq.com/openai/v1/chat/completions' : 'https://api.x.ai/v1/chat/completions';
-        const model = groq ? (process.env.GROQ_MODEL || 'llama-3.3-70b-versatile') : (process.env.GROK_MODEL || 'grok-3-mini');
-        const messages = [...(systemInstruction ? [{ role: 'system', content: systemInstruction }] : []), { role: 'user', content: userPrompt }];
-        const response = await fetch(endpoint, { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model, messages, temperature: 0.7, max_tokens: 2048 }) });
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.error?.message || `${provider} menolak permintaan (HTTP ${response.status}).`);
-        const text = body.choices?.[0]?.message?.content;
-        if (!text) throw new Error(`${provider} tidak mengembalikan respons.`);
-        return { text: text.trim(), usage: { promptTokens: body.usage?.prompt_tokens || 0, outputTokens: body.usage?.completion_tokens || 0, totalTokens: body.usage?.total_tokens || 0 } };
+        const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+        const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: modelName, systemInstruction });
+        const result = await model.generateContent({ contents: [{ role: 'user', parts: [{ text: userPrompt }] }], generationConfig: { temperature: 0.7, topP: 0.95, topK: 40, maxOutputTokens: 2048 } });
+        const text = result.response.text();
+        if (!text) throw new Error('Gemini tidak mengembalikan respons.');
+        return { text: text.trim(), usage: { promptTokens: result.usageMetadata?.promptTokenCount || 0, outputTokens: result.usageMetadata?.candidatesTokenCount || 0, totalTokens: result.usageMetadata?.totalTokenCount || 0 } };
     } catch (error) {
         console.error('Prompt provider API Error:', error.message);
         const err = new Error(error.message || 'AI gagal memproses permintaan');
@@ -90,15 +67,13 @@ async function generatePromptContent(userId, userPrompt, systemInstruction = nul
 // ==========================================
 router.get('/check-connection', verifyToken, async (req, res) => {
     try {
-        const result = await generatePromptContent(req.user.id,
-            'Reply with exactly two words: connection verified'
-        );
+        const result = await generatePromptContent('Reply with exactly two words: connection verified');
 
         res.status(200).json({
             success: true,
             message: '✅ Koneksi Google Gemini berhasil!',
             details: {
-                model: 'provider terpilih',
+                model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
                 response: result.text,
                 tokenUsage: result.usage
             }
@@ -149,7 +124,7 @@ ${notes ? `- Catatan Tambahan: ${notes}` : ''}
 
 Hasilkan hanya naskah narasi yang siap dibacakan, tanpa apapun selain konten narasi itu sendiri.`;
 
-        const result = await generatePromptContent(req.user.id, userPrompt, systemInstruction);
+        const result = await generatePromptContent(userPrompt, systemInstruction);
         const script = normalizeSpokenScript(result.text);
 
         if (!script) {
@@ -221,7 +196,7 @@ Hasilkan HANYA naskah narasi tanpa komentar atau metadata apapun.`;
             'Hasilkan hanya naskah narasi yang siap dibacakan, tanpa apapun selain konten narasi itu sendiri.'
         ].filter(Boolean).join('\n');
 
-        const result = await generatePromptContent(req.user.id, userPrompt, systemInstruction);
+        const result = await generatePromptContent(userPrompt, systemInstruction);
         const script = normalizeSpokenScript(result.text);
 
         if (!script) {

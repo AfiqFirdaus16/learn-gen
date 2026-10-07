@@ -50,8 +50,8 @@ export function RoleDashboardShell({ role, children }: { role: Role; children: R
 
   const items = navigation[role];
 
-  return <div className={`min-h-screen bg-slate-50 text-slate-800 ${isLoggingOut ? 'page-transition-exit' : ''}`}>
-    <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-slate-200 bg-white px-5 py-6 text-slate-700 shadow-sm md:flex">
+  return <div className={`min-h-screen bg-slate-50 text-slate-800 md:flex ${isLoggingOut ? 'page-transition-exit' : ''}`}>
+    <aside className="sticky top-0 z-20 hidden h-screen w-64 shrink-0 flex-col border-r border-slate-200 bg-white px-5 py-6 text-slate-700 shadow-sm md:flex">
       <Link href={`/${role}`} className="flex items-center gap-3 border-b border-slate-200 pb-6">
         <div className="flex size-10 items-center justify-center rounded-xl bg-[#123b78] text-xl font-black text-white">L</div>
         <div>
@@ -59,10 +59,10 @@ export function RoleDashboardShell({ role, children }: { role: Role; children: R
           <p className="text-xs text-slate-500">Portal {roleLabel[role]}</p>
         </div>
       </Link>
-      <nav className="mt-7 space-y-2">{items.map((item) => { const Icon = item.icon; const active = pathname === item.href; return <Link key={item.href} href={item.href} className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${active ? 'bg-[#123b78] text-white shadow-sm' : 'text-slate-600 hover:bg-blue-50 hover:text-[#123b78]'}`}><Icon className="size-4" />{item.label}</Link>; })}</nav>
+      <nav className="mt-7 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">{items.map((item) => { const Icon = item.icon; const active = pathname === item.href; return <Link key={item.href} href={item.href} className={`flex shrink-0 items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${active ? 'bg-[#123b78] text-white shadow-sm' : 'text-slate-600 hover:bg-blue-50 hover:text-[#123b78]'}`}><Icon className="size-4" />{item.label}</Link>; })}</nav>
       <div className="mt-auto border-t border-slate-200 pt-5"><button type="button" onClick={handleLogout} disabled={isLoggingOut} className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-slate-600 transition-colors hover:bg-blue-50 hover:text-[#123b78] disabled:opacity-60"><LogOut className="size-4" />Keluar</button></div>
     </aside>
-    <div className="md:pl-64">
+    <div className="min-w-0 flex-1">
       <header className="sticky top-0 z-10 flex h-20 items-center justify-end border-b border-slate-200 bg-white/95 px-5 shadow-sm backdrop-blur md:px-8">
         <div className="flex w-full items-center justify-between md:w-auto md:justify-end md:gap-5">
           <p className="font-bold text-[#123b78] md:hidden">LEARN-GEN</p>
