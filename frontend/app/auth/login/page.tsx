@@ -17,6 +17,7 @@ export default function LoginPage() {
         e.preventDefault();
         setError('');
         setIsLoading(true);
+        console.log("URL BACKEND SAAT INI:", process.env.NEXT_PUBLIC_BACKEND_URL);
 
         try {
             const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
