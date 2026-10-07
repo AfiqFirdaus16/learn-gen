@@ -18,6 +18,22 @@ import pkg from '@prisma/client';
 
 const app = express();
 
+const configuredFrontendOrigin = (process.env.FRONTEND_URL || '').trim().replace(/\/+$/, '');
+const allowedOrigins = [
+    configuredFrontendOrigin,
+    'https://learn-gen-ew8t.vercel.app',
+    'https://learn-gen-frontend.vercel.app',
+    'http://localhost:3000',
+    'http://localhost:3001',
+].filter(Boolean);
+
+app.use(cors({
+    origin: allowedOrigins,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
 // 3. Inisialisasi Prisma menggunakan Adapter Postgres
 const { Pool } = pg;
 const { PrismaClient } = pkg;
@@ -27,24 +43,10 @@ const prisma = new PrismaClient({ adapter });
 
 const PORT = process.env.PORT || 5000;
 
-await ensureDefaultAdmin();
-
 // ==========================================
 // MIDDLEWARE
 // ==========================================
 
-// PERBAIKAN 1: Mengatur CORS agar mengizinkan Vercel dan Localhost
-app.use(cors({
-    origin: [
-        process.env.FRONTEND_URL,
-        'http://localhost:3000', // Untuk jaga-jaga jika frontend jalan di 3000
-        'http://localhost:3001', // TAMBAHKAN INI karena frontend Anda sekarang di 3001
-        'http://learn-gen-ew8t.vercel.app', // Vercel frontend
-    ].filter(Boolean),
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
 app.use(express.json());
 
 // ==========================================
