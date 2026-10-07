@@ -50,8 +50,8 @@ export default function ApiKeysPage() {
     setBusy(category); setNotice(''); setError('');
     const provider = config.selected[category];
     try {
-      await requestJson(await authenticatedFetch(`${API_BASE_URL}/api/api-keys`, {
-        method: 'PUT',
+      await requestJson(await authenticatedFetch(`${API_BASE_URL}/api/keys`, {
+        method: 'POST',
         body: JSON.stringify({ category, provider, selectedProvider: provider, ...(keys[category].trim() ? { apiKey: keys[category].trim() } : {}) }),
       }));
       setKeys((current) => ({ ...current, [category]: '' }));

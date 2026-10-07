@@ -36,10 +36,11 @@ await ensureDefaultAdmin();
 // PERBAIKAN 1: Mengatur CORS agar mengizinkan Vercel dan Localhost
 app.use(cors({
     origin: [
+        process.env.FRONTEND_URL,
         'http://localhost:3000', // Untuk jaga-jaga jika frontend jalan di 3000
         'http://localhost:3001', // TAMBAHKAN INI karena frontend Anda sekarang di 3001
         'https://learn-gen-frontend.vercel.app' 
-    ],
+    ].filter(Boolean),
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization']
@@ -67,6 +68,7 @@ app.use('/api/materials', materialRoutes);
 app.use('/api/tests', testRoutes);
 app.use('/api/personas', personaRoutes);
 app.use('/api/api-keys', apiKeyRoutes);
+app.use('/api/keys', apiKeyRoutes);
 
 // ==========================================
 // ERROR HANDLING

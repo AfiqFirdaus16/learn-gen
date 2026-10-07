@@ -18,6 +18,13 @@ const router = express.Router();
 // ==========================================
 const D_ID_API_BASE = 'https://api.d-id.com';
 const HEYGEN_API_BASE = 'https://api.heygen.com/v3';
+const supportedVideoProviders = new Set(['d-id', 'heygen', 'elevenlabs']);
+
+function normalizeVideoProvider(value) {
+  const provider = String(value || '').trim().toLowerCase();
+  if (provider === 'd-id (studio)' || provider === 'd-id studio') return 'd-id';
+  return provider;
+}
 
 /**
  * Membuat header Authorization dengan Basic Auth untuk D-ID API
@@ -26,7 +33,6 @@ const HEYGEN_API_BASE = 'https://api.heygen.com/v3';
 async function getSavedApiKey(userId, provider) {
     const savedCredential = await prisma.apiCredential.findUnique({ where: { userId_category_provider: { userId, category: 'video', provider } } });
     if (savedCredential) return decryptApiKey(savedCredential.encryptedApiKey);
-    if (provider === 'd-id') return process.env.D_ID_API_KEY || null;
     return null;
 }
 
@@ -44,7 +50,11 @@ async function getDIdAuthHeader(userId) {
 
 router.get('/credits', verifyToken, async (req, res) => {
   try {
-    const provider = await getVideoProvider(req.user.id);
+    const requestedProvider = req.query.provider ? normalizeVideoProvider(req.query.provider) : '';
+    if (requestedProvider && !supportedVideoProviders.has(requestedProvider)) {
+      return res.status(400).json({ success: false, error: 'Provider AI tidak dikenali atau kunci belum diatur.' });
+    }
+    const provider = requestedProvider || await getVideoProvider(req.user.id);
     if (provider === 'heygen') {
       const apiKey = await getSavedApiKey(req.user.id, 'heygen');
       if (!apiKey) throw new Error('API key HeyGen belum disimpan. Buka Manajemen API untuk menambahkannya.');
@@ -96,6 +106,7 @@ router.get('/', verifyToken, async (req, res) => {
         duration: true,
         durationSeconds: true,
         accentType: true,
+        provider: true,
         script: true,
         scriptDescription: true,
         generatedPrompt: true,
@@ -115,12 +126,16 @@ router.get('/', verifyToken, async (req, res) => {
 
 router.post('/', verifyToken, async (req, res) => {
   try {
-    const { learnerName, topic, learningStyle, persona, duration, durationSeconds, accentType, script, scriptDescription, generatedPrompt, elevenlabsVideoId, status = 'processing' } = req.body;
+    const { learnerName, topic, learningStyle, persona, duration, durationSeconds, accentType, provider, script, scriptDescription, generatedPrompt, elevenlabsVideoId, status = 'processing' } = req.body;
     if (!topic || !learningStyle || !persona || !duration || !accentType) {
       return res.status(400).json({ error: 'Data materi video belum lengkap.' });
     }
     if (durationSeconds !== undefined && (!Number.isInteger(Number(durationSeconds)) || Number(durationSeconds) < 1)) {
       return res.status(400).json({ error: 'Durasi detik harus berupa bilangan bulat positif.' });
+    }
+    const selectedProvider = normalizeVideoProvider(provider || accentType || 'd-id');
+    if (!supportedVideoProviders.has(selectedProvider)) {
+      return res.status(400).json({ success: false, error: 'Provider AI tidak dikenali atau kunci belum diatur.' });
     }
 
     const spokenScript = typeof script === 'string' ? script.trim() : '';
@@ -136,6 +151,7 @@ router.post('/', verifyToken, async (req, res) => {
         duration: Number(duration),
         durationSeconds: durationSeconds === undefined ? null : Number(durationSeconds),
         accentType,
+        provider: selectedProvider,
         script: spokenScript || fullPrompt,
         scriptDescription: typeof scriptDescription === 'string' ? scriptDescription.trim() : null,
         generatedPrompt: fullPrompt,
@@ -203,37 +219,49 @@ router.post('/create', verifyToken, async (req, res) => {
       });
     }
 
-    const provider = video.accentType || await getVideoProvider(req.user.id);
+    const provider = normalizeVideoProvider(req.body.provider || video.provider || video.accentType || await getVideoProvider(req.user.id));
+    if (!supportedVideoProviders.has(provider)) {
+      return res.status(400).json({ success: false, error: 'Provider AI tidak dikenali atau kunci belum diatur.' });
+    }
+
     let providerVideoId;
     let providerLabel;
-    if (provider === 'heygen') {
-      if (!voiceId?.trim()) return res.status(400).json({ success: false, error: 'Voice ID HeyGen wajib diisi.' });
-      const apiKey = await getSavedApiKey(req.user.id, 'heygen');
-      if (!apiKey) throw new Error('API key HeyGen belum disimpan. Buka Manajemen API untuk menambahkannya.');
-      const response = await axios.post(`${HEYGEN_API_BASE}/videos`, {
-        type: 'image',
-        image: { type: 'url', url: sourceUrl },
-        script: scriptText,
-        voice_id: voiceId.trim(),
-        title: video.topic,
-        resolution: '1080p',
-        aspect_ratio: 'auto',
-      }, { headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' } });
-      providerVideoId = response.data?.data?.video_id;
-      providerLabel = 'HeyGen';
-    } else {
-      const headers = { Authorization: await getDIdAuthHeader(req.user.id), 'Content-Type': 'application/json' };
-      let script = { type: 'text', input: scriptText };
-      if (provider === 'elevenlabs') {
+    switch (provider) {
+      case 'heygen': {
+        if (!voiceId?.trim()) return res.status(400).json({ success: false, error: 'Voice ID HeyGen wajib diisi.' });
+        const apiKey = await getSavedApiKey(req.user.id, 'heygen');
+        if (!apiKey) throw new Error('API key HeyGen belum disimpan. Buka Manajemen API untuk menambahkannya.');
+        const response = await axios.post(`${HEYGEN_API_BASE}/videos`, {
+          type: 'image',
+          image: { type: 'url', url: sourceUrl },
+          script: scriptText,
+          voice_id: voiceId.trim(),
+          title: video.topic,
+          resolution: '1080p',
+          aspect_ratio: 'auto',
+        }, { headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' } });
+        providerVideoId = response.data?.data?.video_id;
+        providerLabel = 'HeyGen';
+        break;
+      }
+      case 'elevenlabs':
+      case 'd-id': {
+        const headers = { Authorization: await getDIdAuthHeader(req.user.id), 'Content-Type': 'application/json' };
+        let script = { type: 'text', input: scriptText };
+        if (provider === 'elevenlabs') {
         if (!voiceId?.trim()) return res.status(400).json({ success: false, error: 'Voice ID ElevenLabs wajib diisi.' });
         const elevenLabsKey = await getSavedApiKey(req.user.id, 'elevenlabs');
         if (!elevenLabsKey) throw new Error('API key ElevenLabs belum disimpan. Buka Manajemen API untuk menambahkannya.');
         headers['x-api-key-external'] = JSON.stringify({ elevenlabs: elevenLabsKey });
         script = { type: 'text', input: scriptText, provider: { type: 'elevenlabs', voice_id: voiceId.trim() } };
+        }
+        const response = await axios.post(`${D_ID_API_BASE}/talks`, { source_url: sourceUrl, script }, { headers });
+        providerVideoId = response.data.id;
+        providerLabel = provider === 'elevenlabs' ? 'D-ID + ElevenLabs' : 'D-ID';
+        break;
       }
-      const response = await axios.post(`${D_ID_API_BASE}/talks`, { source_url: sourceUrl, script }, { headers });
-      providerVideoId = response.data.id;
-      providerLabel = provider === 'elevenlabs' ? 'D-ID + ElevenLabs' : 'D-ID';
+      default:
+        return res.status(400).json({ success: false, error: 'Provider AI tidak dikenali atau kunci belum diatur.' });
     }
     if (!providerVideoId) throw new Error(`${providerLabel || provider} tidak mengembalikan ID video.`);
 
@@ -242,6 +270,7 @@ router.post('/create', verifyToken, async (req, res) => {
       where: { id: parseInt(videoId) },
       data: {
         elevenlabsVideoId: providerVideoId,
+        provider,
         status: 'processing'
       }
     });
@@ -318,7 +347,7 @@ router.get('/status/:id', verifyToken, async (req, res) => {
     }
 
     // Cek status dengan D-ID API
-    const provider = video.accentType || 'd-id';
+    const provider = normalizeVideoProvider(video.provider || video.accentType || 'd-id');
     let providerStatus;
     let resultUrl;
     let failureMessage;

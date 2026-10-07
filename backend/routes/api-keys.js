@@ -39,7 +39,7 @@ router.get('/', verifyToken, async (req, res) => {
   }
 });
 
-router.put('/', verifyToken, async (req, res) => {
+async function saveApiConfiguration(req, res) {
   const { category, provider, apiKey, selectedProvider } = req.body || {};
   const providers = apiProviders[category];
   if (!providers || (provider && !providers.some((item) => item.id === provider))) {
@@ -68,7 +68,10 @@ router.put('/', verifyToken, async (req, res) => {
     console.error('Save API configuration error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Gagal menyimpan konfigurasi API.' });
   }
-});
+}
+
+router.put('/', verifyToken, saveApiConfiguration);
+router.post('/', verifyToken, saveApiConfiguration);
 
 router.delete('/:category/:provider', verifyToken, async (req, res) => {
   const { category, provider } = req.params;
