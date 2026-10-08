@@ -29,7 +29,7 @@ router.get('/', verifyToken, async (req, res) => {
       prisma.user.findUnique({ where: { id: req.user.id }, select: { videoProvider: true, voiceProvider: true } }),
       prisma.apiCredential.findMany({ where: { userId: req.user.id, category: { in: ['video', 'voice'] } }, select: { category: true, provider: true, encryptedApiKey: true, updatedAt: true } }),
     ]);
-    const keys = credentials.map(({ category, provider, encryptedApiKey, updatedAt }) => ({ category, provider, maskedKey: mask(decryptApiKey(encryptedApiKey)), updatedAt }));
+    const keys = (Array.isArray(credentials) ? credentials : []).map(({ category, provider, encryptedApiKey, updatedAt }) => ({ category, provider, maskedKey: mask(decryptApiKey(encryptedApiKey)), updatedAt }));
     return res.json({ success: true, data: { providers: apiProviders, selected: { video: user?.videoProvider || 'd-id', voice: user?.voiceProvider || 'd-id' }, credentials: keys } });
   } catch (error) {
     console.error('Load API configuration error:', error);
