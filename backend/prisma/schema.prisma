@@ -3,9 +3,11 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// Konfigurasi koneksi ke Supabase (URL kini diatur lewat prisma.config.ts)
+// Konfigurasi koneksi ke Supabase
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // Definisikan Enum untuk Peran Pengguna (Lebih aman dari sekadar String)
