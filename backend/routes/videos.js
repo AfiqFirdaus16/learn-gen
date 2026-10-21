@@ -188,19 +188,33 @@ router.post('/', verifyToken, async (req, res) => {
  * {
  *   "videoId": <database_video_id>,
  *   "scriptText": "Naskah dari Gemini",
- *   "sourceUrl": "https://example.com/avatar.jpg"
+ *   "sourceUrl": "https://example.com/avatar.jpg" (opsional; default dari DEFAULT_AVATAR_SOURCE_URL)
  * }
  */
 router.post('/create', verifyToken, async (req, res) => {
   try {
-    const { videoId, scriptText, sourceUrl, voiceId } = req.body;
+    const { videoId, scriptText, voiceId } = req.body;
+    const sourceUrl = typeof req.body.sourceUrl === 'string' && req.body.sourceUrl.trim()
+      ? req.body.sourceUrl.trim()
+      : process.env.DEFAULT_AVATAR_SOURCE_URL?.trim();
 
     // Validasi input
-    if (!scriptText || !sourceUrl) {
+    if (!scriptText) {
       return res.status(400).json({
         success: false,
-        error: 'scriptText dan sourceUrl wajib diisi.'
+        error: 'scriptText wajib diisi.'
       });
+    }
+
+    if (!sourceUrl) {
+      return res.status(503).json({ success: false, error: 'Avatar default belum dikonfigurasi. Atur DEFAULT_AVATAR_SOURCE_URL di backend.' });
+    }
+
+    try {
+      const parsedSourceUrl = new URL(sourceUrl);
+      if (!['http:', 'https:'].includes(parsedSourceUrl.protocol)) throw new Error('Unsupported protocol');
+    } catch {
+      return res.status(400).json({ success: false, error: 'URL avatar default harus berupa URL HTTP atau HTTPS yang valid.' });
     }
 
     if (!videoId) {
