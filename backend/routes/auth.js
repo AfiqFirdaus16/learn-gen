@@ -51,15 +51,15 @@ export const ensureDefaultAdmin = async () => {
 
 router.post('/login', async (req, res) => {
     try {
-        await ensureDefaultAdmin();
+        const { email, password } = req.body ?? {};
 
-        const { email, password } = req.body;
-
-        if (!email || !password) {
+        if (typeof email !== 'string' || !email.trim() || typeof password !== 'string' || !password) {
             return res.status(400).json({
                 error: 'Email dan password harus diisi'
             });
         }
+
+        await ensureDefaultAdmin();
 
         const user = await prisma.user.findUnique({
             where: { email: String(email).trim().toLowerCase() },
@@ -114,8 +114,7 @@ router.post('/login', async (req, res) => {
     } catch (error) {
         console.error('Login error:', error);
         res.status(500).json({
-            error: 'Terjadi kesalahan saat login',
-            message: error.message
+            error: 'Terjadi kesalahan saat login'
         });
     }
 });
