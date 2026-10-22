@@ -94,6 +94,7 @@ model Video {
   // Metadata
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  materials       Materi[]
   completedAt     DateTime?
 }
 
@@ -102,16 +103,23 @@ model Video {
 // ==========================================
 
 model Materi {
-  id        Int      @id @default(autoincrement())
-  judul     String
-  deskripsi String?
+  id          Int       @id @default(autoincrement())
+  judul       String
+  deskripsi   String?
+  publishAt   DateTime?
+  isActive    Boolean   @default(true)
+  videoId     Int?
+  video       Video?    @relation(fields: [videoId], references: [id], onDelete: SetNull)
   
   // Relasi ke pembuat (Dosen/Admin)
-  authorId  Int
-  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  authorId   Int
+  author     User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
   
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt  DateTime  @updatedAt
+
+  @@index([authorId, publishAt])
+  @@index([isActive, publishAt])
 }
 
 model Test {

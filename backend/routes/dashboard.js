@@ -17,16 +17,22 @@ router.get('/stats', verifyToken, async (req, res) => {
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
     if (!user) return res.status(401).json({ error: 'Pengguna tidak ditemukan.' });
 
-    const [activeUsers, availableMaterials, createdMaterials, registeredStudents] = await Promise.all([
+    const publicationFilter = {
+      isActive: true,
+      publishAt: { lte: new Date() },
+      video: { is: { status: 'completed', videoUrl: { not: null } } },
+    };
+    const [activeUsers, materials, availableMaterials, createdMaterials, registeredStudents] = await Promise.all([
       prisma.user.count(),
-      prisma.video.count({ where: { status: { not: 'failed' } } }),
-      prisma.video.count({ where: { userId: user.id, status: { not: 'failed' } } }),
+      prisma.materi.count(),
+      prisma.materi.count({ where: publicationFilter }),
+      prisma.materi.count({ where: { authorId: user.id } }),
       prisma.user.count({ where: { role: 'MAHASISWA' } }),
     ]);
 
     const stats = {
       activeUsers,
-      materials: availableMaterials,
+      materials,
       activeTests: 0,
       registeredClasses: 0,
       createdMaterials,
