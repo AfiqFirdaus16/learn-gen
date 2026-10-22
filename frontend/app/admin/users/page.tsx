@@ -9,6 +9,10 @@ type Role = 'admin' | 'dosen' | 'mahasiswa';
 type User = { id: number; nama: string; email: string; role: Role; createdAt: string };
 type FormData = { nama: string; email: string; password: string; role: Role };
 
+function normalizeUser(user: Omit<User, 'role'> & { role: string }): User {
+  return { ...user, role: user.role.toLowerCase() as Role };
+}
+
 const initialForm: FormData = { nama: '', email: '', password: '', role: 'mahasiswa' };
 const roleLabel: Record<Role, string> = { admin: 'Admin', dosen: 'Dosen', mahasiswa: 'Mahasiswa' };
 const roleClass: Record<Role, string> = {
@@ -45,7 +49,7 @@ export default function UsersPage() {
       const suffix = params.size ? `?${params.toString()}` : '';
       const response = await authenticatedFetch(`${API_BASE_URL}/api/users${suffix}`);
       const data = await readResponse(response);
-      setUsers(data.users);
+      setUsers(data.users.map(normalizeUser));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Gagal memuat pengguna.');
     } finally {
@@ -64,7 +68,7 @@ export default function UsersPage() {
         const response = await authenticatedFetch(`${API_BASE_URL}/api/users`);
         const data = await readResponse(response);
         if (!cancelled) {
-          setUsers(data.users);
+          setUsers(data.users.map(normalizeUser));
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -86,6 +90,7 @@ export default function UsersPage() {
 
   const totals = useMemo(() => ({
     all: users.length,
+    admin: users.filter((user) => user.role === 'admin').length,
     dosen: users.filter((user) => user.role === 'dosen').length,
     mahasiswa: users.filter((user) => user.role === 'mahasiswa').length,
   }), [users]);
@@ -153,8 +158,8 @@ export default function UsersPage() {
       <button type="button" onClick={openCreate} className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"><Plus className="size-4" />Tambah pengguna</button>
     </div>
 
-    <div className="grid gap-4 sm:grid-cols-3">
-      {[['Total pengguna', totals.all, 'text-indigo-600'], ['Dosen', totals.dosen, 'text-sky-600'], ['Mahasiswa', totals.mahasiswa, 'text-emerald-600']].map(([label, value, color]) => <div key={String(label)} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">{label}</p><p className={`mt-1 text-3xl font-bold ${color}`}>{value}</p></div>)}
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {[['Total pengguna', totals.all, 'text-indigo-600'], ['Admin', totals.admin, 'text-violet-600'], ['Dosen', totals.dosen, 'text-sky-600'], ['Mahasiswa', totals.mahasiswa, 'text-emerald-600']].map(([label, value, color]) => <div key={String(label)} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">{label}</p><p className={`mt-1 text-3xl font-bold ${color}`}>{value}</p></div>)}
     </div>
 
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
