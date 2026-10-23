@@ -14,6 +14,7 @@ const router = express.Router();
 const materialInclude = {
   author: { select: { id: true, nama: true } },
   video: { select: { id: true, topic: true, videoUrl: true, status: true, createdAt: true } },
+  kelas: { select: { id: true, namaKelas: true } },
 };
 
 router.use(verifyToken);
@@ -25,6 +26,7 @@ router.get('/', async (req, res) => {
           isActive: true,
           publishAt: { lte: new Date() },
           video: { is: { status: 'completed', videoUrl: { not: null } } },
+          kelas: { some: { mahasiswa: { some: { id: req.user.id } } } },
         }
       : req.user.role === 'DOSEN'
         ? { authorId: req.user.id }
@@ -52,6 +54,7 @@ function parseMaterialInput(body) {
   const videoId = Number(body.videoId);
   const publishAt = typeof body.publishAt === 'string' ? new Date(body.publishAt) : new Date(Number.NaN);
   const isActive = body.isActive === undefined ? true : body.isActive;
+  const kelasIds = Array.isArray(body.kelasIds) ? [...new Set(body.kelasIds.map(Number))] : [];
 
   if (!judul) return { error: 'Judul materi wajib diisi.' };
   if (judul.length > 100) return { error: 'Judul materi maksimal 100 karakter.' };
@@ -59,8 +62,19 @@ function parseMaterialInput(body) {
   if (Number.isNaN(publishAt.getTime())) return { error: 'Tanggal dan jam publikasi wajib diisi dengan benar.' };
   if (publishAt.getTime() <= Date.now()) return { error: 'Tanggal dan jam publikasi harus lebih besar dari waktu saat ini.' };
   if (typeof isActive !== 'boolean') return { error: 'Status materi tidak valid.' };
+  if (!kelasIds.length || kelasIds.some((id) => !Number.isInteger(id) || id < 1)) return { error: 'Pilih minimal satu kelas yang dapat mengakses materi.' };
 
-  return { data: { judul, deskripsi: deskripsi || null, videoId, publishAt, isActive } };
+  return { data: { judul, deskripsi: deskripsi || null, videoId, publishAt, isActive, kelasIds } };
+}
+
+async function lecturerClassesExist(kelasIds, dosenId) {
+  const count = await prisma.kelas.count({ where: { id: { in: kelasIds }, dosenId } });
+  return count === kelasIds.length;
+}
+
+function materialWriteData(data) {
+  const { kelasIds, ...fields } = data;
+  return { ...fields, kelas: { set: kelasIds.map((id) => ({ id })) } };
 }
 
 async function findOwnedVideo(videoId, userId) {
@@ -97,9 +111,10 @@ router.post('/', async (req, res) => {
     if (parsed.error) return res.status(400).json({ error: parsed.error });
     const video = await findOwnedVideo(parsed.data.videoId, req.user.id);
     if (!video) return res.status(400).json({ error: 'Pilih video selesai yang dibuat oleh akun Anda.' });
+    if (!await lecturerClassesExist(parsed.data.kelasIds, req.user.id)) return res.status(400).json({ error: 'Pilih hanya kelas yang Anda ampu.' });
 
     const material = await prisma.materi.create({
-      data: { ...parsed.data, authorId: req.user.id },
+      data: { ...materialWriteData(parsed.data), authorId: req.user.id },
       include: materialInclude,
     });
     return res.status(201).json({ success: true, material });
@@ -119,9 +134,10 @@ router.put('/:id', async (req, res) => {
     if (parsed.error) return res.status(400).json({ error: parsed.error });
     const video = await findOwnedVideo(parsed.data.videoId, req.user.id);
     if (!video) return res.status(400).json({ error: 'Pilih video selesai yang dibuat oleh akun Anda.' });
+    if (!await lecturerClassesExist(parsed.data.kelasIds, req.user.id)) return res.status(400).json({ error: 'Pilih hanya kelas yang Anda ampu.' });
     if (!await canManageMaterial(req, id)) return res.status(404).json({ error: 'Materi tidak ditemukan.' });
 
-    const material = await prisma.materi.update({ where: { id }, data: parsed.data, include: materialInclude });
+    const material = await prisma.materi.update({ where: { id }, data: materialWriteData(parsed.data), include: materialInclude });
     return res.json({ success: true, material });
   } catch (error) {
     if (error?.code === 'P2025') return res.status(404).json({ error: 'Materi tidak ditemukan.' });

@@ -36,6 +36,8 @@ model User {
   tests     Test[]
   personas  Persona[]
   apiCredentials ApiCredential[]
+  kelasDiampu Kelas[] @relation("KelasDosen")
+  kelasDiikuti Kelas[] @relation("KelasMahasiswa")
   promptProvider String @default("gemini")
   videoProvider  String @default("d-id")
   voiceProvider  String @default("d-id")
@@ -114,6 +116,7 @@ model Materi {
   // Relasi ke pembuat (Dosen/Admin)
   authorId   Int
   author     User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  kelas      Kelas[]
   
   createdAt DateTime @default(now())
   updatedAt  DateTime  @updatedAt
@@ -135,8 +138,14 @@ model Test {
 model Kelas {
   id        Int      @id @default(autoincrement())
   namaKelas String
+  dosenId   Int?
+  dosen     User?    @relation("KelasDosen", fields: [dosenId], references: [id], onDelete: SetNull)
+  mahasiswa User[]   @relation("KelasMahasiswa")
+  materi    Materi[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([dosenId])
 }
 
 model ApiCredential {
