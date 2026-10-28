@@ -69,15 +69,11 @@ async function getAvailableGeminiModels(apiKey) {
         .map((model) => model.name.replace(/^models\//, ''));
 }
 
-function selectGeminiModel(availableModels, preferredModel) {
-    if (preferredModel && availableModels.includes(preferredModel)) {
-        return preferredModel;
-    }
-
+function getGeminiModelCandidates(availableModels, preferredModel) {
     const stableModels = availableModels.filter((model) => !/(preview|experimental|exp)/i.test(model));
     const candidates = stableModels.length ? stableModels : availableModels;
     const flashModels = candidates.filter((model) => /flash/i.test(model));
-    const preferredCandidates = flashModels.length ? flashModels : candidates;
+    const preferredCandidates = [...(flashModels.length ? flashModels : candidates)];
 
     const version = (model) => {
         const match = model.match(/gemini-(\d+)(?:\.(\d+))?/i);
@@ -94,7 +90,30 @@ function selectGeminiModel(availableModels, preferredModel) {
         throw new Error('Tidak ada model Gemini yang mendukung generateContent untuk API key ini.');
     }
 
-    return preferredCandidates[0];
+    if (preferredModel && availableModels.includes(preferredModel)) {
+        const preferredIndex = preferredCandidates.indexOf(preferredModel);
+        if (preferredIndex >= 0) preferredCandidates.splice(preferredIndex, 1);
+        preferredCandidates.unshift(preferredModel);
+    }
+
+    return preferredCandidates.slice(0, 3);
+}
+
+function getGeminiErrorStatus(error) {
+    const status = Number(error.status || error.statusCode);
+    if (status) return status;
+
+    const match = error.message?.match(/\[(\d{3})\s/);
+    return match ? Number(match[1]) : 0;
+}
+
+function isRetryableGeminiError(error) {
+    const status = getGeminiErrorStatus(error);
+    return status === 429 || status >= 500;
+}
+
+function delay(milliseconds) {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 async function generatePromptContent(userPrompt, systemInstruction = null) {
@@ -105,14 +124,31 @@ async function generatePromptContent(userPrompt, systemInstruction = null) {
         const genAI = new GoogleGenerativeAI(apiKey);
         const preferredModel = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
         const availableModels = await getAvailableGeminiModels(apiKey);
-        const modelName = selectGeminiModel(availableModels, preferredModel);
+        const modelCandidates = getGeminiModelCandidates(availableModels, preferredModel);
         const requiredEducationInstruction = 'Always write the narration script in English. Use simple, child-friendly vocabulary and short, clear sentences suitable for elementary school students. Explain educational ideas in an easy-to-understand way.';
         const effectiveSystemInstruction = [requiredEducationInstruction, systemInstruction].filter(Boolean).join('\n\n');
-        const model = genAI.getGenerativeModel({ model: modelName, systemInstruction: effectiveSystemInstruction });
-        const result = await model.generateContent({ contents: [{ role: 'user', parts: [{ text: userPrompt }] }], generationConfig: { temperature: 0.7, topP: 0.95, topK: 40, maxOutputTokens: 2048 } });
-        const text = result.response.text();
-        if (!text) throw new Error('Gemini tidak mengembalikan respons.');
-        return { model: modelName, text: text.trim(), usage: { promptTokens: result.usageMetadata?.promptTokenCount || 0, outputTokens: result.usageMetadata?.candidatesTokenCount || 0, totalTokens: result.usageMetadata?.totalTokenCount || 0 } };
+        let lastError;
+
+        for (const modelName of modelCandidates) {
+            const model = genAI.getGenerativeModel({ model: modelName, systemInstruction: effectiveSystemInstruction });
+
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+                try {
+                    const result = await model.generateContent({ contents: [{ role: 'user', parts: [{ text: userPrompt }] }], generationConfig: { temperature: 0.7, topP: 0.95, topK: 40, maxOutputTokens: 2048 } });
+                    const text = result.response.text();
+                    if (!text) throw new Error('Gemini tidak mengembalikan respons.');
+                    return { model: modelName, text: text.trim(), usage: { promptTokens: result.usageMetadata?.promptTokenCount || 0, outputTokens: result.usageMetadata?.candidatesTokenCount || 0, totalTokens: result.usageMetadata?.totalTokenCount || 0 } };
+                } catch (error) {
+                    lastError = error;
+                    if (!isRetryableGeminiError(error)) throw error;
+
+                    console.warn(`Gemini model ${modelName} gagal sementara (HTTP ${getGeminiErrorStatus(error)}); ${attempt === 0 ? 'mencoba ulang' : 'beralih ke model berikutnya'}.`);
+                    if (attempt === 0) await delay(700);
+                }
+            }
+        }
+
+        throw lastError || new Error('Semua model Gemini yang tersedia gagal memproses permintaan.');
     } catch (error) {
         console.error('Prompt provider API Error:', error.message);
         const err = new Error(error.message || 'AI gagal memproses permintaan');
