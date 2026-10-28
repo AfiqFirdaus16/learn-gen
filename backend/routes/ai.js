@@ -43,19 +43,76 @@ function normalizeSpokenScript(rawValue) {
 // ==========================================
 // UTILITY: GENERATE CONTENT DENGAN GEMINI
 // ==========================================
+async function getAvailableGeminiModels(apiKey) {
+    const models = [];
+    let pageToken;
+
+    do {
+        const query = new URLSearchParams({ pageSize: '1000' });
+        if (pageToken) query.set('pageToken', pageToken);
+
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?${query}`, {
+            headers: { 'x-goog-api-key': apiKey }
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error?.message || 'Gagal mengambil daftar model Gemini yang tersedia.');
+        }
+
+        models.push(...(data.models || []));
+        pageToken = data.nextPageToken;
+    } while (pageToken);
+
+    return models
+        .filter((model) => model.supportedGenerationMethods?.includes('generateContent'))
+        .map((model) => model.name.replace(/^models\//, ''));
+}
+
+function selectGeminiModel(availableModels, preferredModel) {
+    if (preferredModel && availableModels.includes(preferredModel)) {
+        return preferredModel;
+    }
+
+    const stableModels = availableModels.filter((model) => !/(preview|experimental|exp)/i.test(model));
+    const candidates = stableModels.length ? stableModels : availableModels;
+    const flashModels = candidates.filter((model) => /flash/i.test(model));
+    const preferredCandidates = flashModels.length ? flashModels : candidates;
+
+    const version = (model) => {
+        const match = model.match(/gemini-(\d+)(?:\.(\d+))?/i);
+        return match ? [Number(match[1]), Number(match[2] || 0)] : [0, 0];
+    };
+
+    preferredCandidates.sort((first, second) => {
+        const firstVersion = version(first);
+        const secondVersion = version(second);
+        return secondVersion[0] - firstVersion[0] || secondVersion[1] - firstVersion[1] || first.localeCompare(second);
+    });
+
+    if (!preferredCandidates.length) {
+        throw new Error('Tidak ada model Gemini yang mendukung generateContent untuk API key ini.');
+    }
+
+    return preferredCandidates[0];
+}
+
 async function generatePromptContent(userPrompt, systemInstruction = null) {
     try {
         const apiKey = process.env.GEMINI_API_KEY;
         if (!apiKey) throw new Error('GEMINI_API_KEY belum dikonfigurasi pada environment backend.');
 
-        const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const preferredModel = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+        const availableModels = await getAvailableGeminiModels(apiKey);
+        const modelName = selectGeminiModel(availableModels, preferredModel);
         const requiredEducationInstruction = 'Always write the narration script in English. Use simple, child-friendly vocabulary and short, clear sentences suitable for elementary school students. Explain educational ideas in an easy-to-understand way.';
         const effectiveSystemInstruction = [requiredEducationInstruction, systemInstruction].filter(Boolean).join('\n\n');
-        const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: modelName, systemInstruction: effectiveSystemInstruction });
+        const model = genAI.getGenerativeModel({ model: modelName, systemInstruction: effectiveSystemInstruction });
         const result = await model.generateContent({ contents: [{ role: 'user', parts: [{ text: userPrompt }] }], generationConfig: { temperature: 0.7, topP: 0.95, topK: 40, maxOutputTokens: 2048 } });
         const text = result.response.text();
         if (!text) throw new Error('Gemini tidak mengembalikan respons.');
-        return { text: text.trim(), usage: { promptTokens: result.usageMetadata?.promptTokenCount || 0, outputTokens: result.usageMetadata?.candidatesTokenCount || 0, totalTokens: result.usageMetadata?.totalTokenCount || 0 } };
+        return { model: modelName, text: text.trim(), usage: { promptTokens: result.usageMetadata?.promptTokenCount || 0, outputTokens: result.usageMetadata?.candidatesTokenCount || 0, totalTokens: result.usageMetadata?.totalTokenCount || 0 } };
     } catch (error) {
         console.error('Prompt provider API Error:', error.message);
         const err = new Error(error.message || 'AI gagal memproses permintaan');
@@ -75,7 +132,7 @@ router.get('/check-connection', verifyToken, async (req, res) => {
             success: true,
             message: '✅ Koneksi Google Gemini berhasil!',
             details: {
-                model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+                model: result.model,
                 response: result.text,
                 tokenUsage: result.usage
             }
