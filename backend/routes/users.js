@@ -50,7 +50,7 @@ router.post('/', async (req, res) => {
     }
 
     const normalizedRole = normalizeRole(role);
-    if (!normalizedRole || normalizedRole === 'ADMIN') {
+    if (!normalizedRole) {
       return res.status(400).json({ error: 'Peran pengguna tidak valid' });
     }
     if (password.length < 6) return res.status(400).json({ error: 'Password minimal 6 karakter' });
@@ -80,7 +80,7 @@ router.put('/:id', async (req, res) => {
     }
 
     const normalizedRole = normalizeRole(role);
-    if (!normalizedRole || normalizedRole === 'ADMIN') {
+    if (!normalizedRole) {
       return res.status(400).json({ error: 'Peran pengguna tidak valid' });
     }
     if (password && password.length < 6) return res.status(400).json({ error: 'Password minimal 6 karakter' });
