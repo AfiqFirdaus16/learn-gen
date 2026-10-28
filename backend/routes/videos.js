@@ -19,6 +19,39 @@ const router = express.Router();
 const D_ID_API_BASE = 'https://api.d-id.com';
 const HEYGEN_API_BASE = 'https://api.heygen.com/v3';
 const supportedVideoProviders = new Set(['d-id', 'heygen', 'elevenlabs']);
+const DEFAULT_AVATAR_SOURCE_URL = 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=512&h=512&q=80';
+const PERSONA_AVATAR_RULES = [
+  {
+    keywords: /\b(ramah|sabar|lembut|hangat|baik hati|friendly|patient|gentle|kind|warm)\b/i,
+    sourceUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=512&h=512&q=80',
+  },
+  {
+    keywords: /\b(serius|tegas|profesional|formal|disiplin|fokus|strict|serious|professional|focused)\b/i,
+    sourceUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=512&h=512&q=80',
+  },
+  {
+    keywords: /\b(energik|ceria|antusias|bersemangat|aktif|energetic|cheerful|enthusiastic|lively|active)\b/i,
+    sourceUrl: 'https://images.unsplash.com/photo-1531123897727-8f129e1688ce?auto=format&fit=crop&w=512&h=512&q=80',
+  },
+  {
+    keywords: /\b(kreatif|imajinatif|kreativitas|creative|imaginative|playful|artistik|artistic)\b/i,
+    sourceUrl: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=512&h=512&q=80',
+  },
+];
+
+function getPersonaAvatarUrl(persona) {
+  const personaDescription = typeof persona === 'string' ? persona.trim() : '';
+  const matchingRule = PERSONA_AVATAR_RULES.find(({ keywords }) => keywords.test(personaDescription));
+  return matchingRule?.sourceUrl || DEFAULT_AVATAR_SOURCE_URL;
+}
+
+function isValidAvatarUrl(sourceUrl) {
+  try {
+    return ['http:', 'https:'].includes(new URL(sourceUrl).protocol);
+  } catch {
+    return false;
+  }
+}
 
 function normalizeVideoProvider(value) {
   const provider = String(value || '').trim().toLowerCase();
@@ -188,15 +221,12 @@ router.post('/', verifyToken, async (req, res) => {
  * {
  *   "videoId": <database_video_id>,
  *   "scriptText": "Naskah dari Gemini",
- *   "sourceUrl": "https://example.com/avatar.jpg" (opsional; default dari DEFAULT_AVATAR_SOURCE_URL)
+ *   "sourceUrl": "https://example.com/avatar.jpg" (opsional; default berdasarkan persona)
  * }
  */
 router.post('/create', verifyToken, async (req, res) => {
   try {
     const { videoId, scriptText, voiceId } = req.body;
-    const sourceUrl = typeof req.body.sourceUrl === 'string' && req.body.sourceUrl.trim()
-      ? req.body.sourceUrl.trim()
-      : process.env.DEFAULT_AVATAR_SOURCE_URL?.trim();
 
     // Validasi input
     if (!scriptText) {
@@ -204,17 +234,6 @@ router.post('/create', verifyToken, async (req, res) => {
         success: false,
         error: 'scriptText wajib diisi.'
       });
-    }
-
-    if (!sourceUrl) {
-      return res.status(503).json({ success: false, error: 'Avatar default belum dikonfigurasi. Atur DEFAULT_AVATAR_SOURCE_URL di backend.' });
-    }
-
-    try {
-      const parsedSourceUrl = new URL(sourceUrl);
-      if (!['http:', 'https:'].includes(parsedSourceUrl.protocol)) throw new Error('Unsupported protocol');
-    } catch {
-      return res.status(400).json({ success: false, error: 'URL avatar default harus berupa URL HTTP atau HTTPS yang valid.' });
     }
 
     if (!videoId) {
@@ -241,6 +260,12 @@ router.post('/create', verifyToken, async (req, res) => {
         success: false,
         error: 'Anda tidak memiliki akses ke video ini.'
       });
+    }
+
+    const requestedSourceUrl = typeof req.body.sourceUrl === 'string' ? req.body.sourceUrl.trim() : '';
+    const sourceUrl = requestedSourceUrl || getPersonaAvatarUrl(video.persona);
+    if (!isValidAvatarUrl(sourceUrl)) {
+      return res.status(400).json({ success: false, error: 'URL avatar harus berupa URL HTTP atau HTTPS yang valid.' });
     }
 
     const providerSettings = await getProviderSettings(req.user.id);
