@@ -30,7 +30,16 @@ function cleanScript(value: string) {
 
 async function readApiJson(response: Response) {
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `Permintaan gagal (HTTP ${response.status}).`);
+  if (!response.ok) {
+    const formatErrorValue = (value: unknown) => typeof value === 'string' ? value : value ? JSON.stringify(value) : '';
+    const details = typeof data.details === 'string'
+      ? data.details
+      : data.details
+        ? JSON.stringify(data.details)
+        : '';
+    const message = formatErrorValue(data.error) || `Permintaan gagal (HTTP ${response.status}).`;
+    throw new Error(details && !message.includes(details) ? `${message} (${details})` : message);
+  }
   return data;
 }
 

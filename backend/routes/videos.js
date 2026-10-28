@@ -19,23 +19,24 @@ const router = express.Router();
 const D_ID_API_BASE = 'https://api.d-id.com';
 const HEYGEN_API_BASE = 'https://api.heygen.com/v3';
 const supportedVideoProviders = new Set(['d-id', 'heygen', 'elevenlabs']);
-const DEFAULT_AVATAR_SOURCE_URL = 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=512&h=512&q=80';
+const DEFAULT_AVATAR_SOURCE_URL = 'https://raw.githubusercontent.com/jjranalli/nightwatch/master/tests/assets/image.png';
+const DEFAULT_DID_VOICE_ID = 'id-ID-ArdiNeural';
 const PERSONA_AVATAR_RULES = [
   {
     keywords: /\b(ramah|sabar|lembut|hangat|baik hati|friendly|patient|gentle|kind|warm)\b/i,
-    sourceUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=512&h=512&q=80',
+    sourceUrl: DEFAULT_AVATAR_SOURCE_URL,
   },
   {
     keywords: /\b(serius|tegas|profesional|formal|disiplin|fokus|strict|serious|professional|focused)\b/i,
-    sourceUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=512&h=512&q=80',
+    sourceUrl: DEFAULT_AVATAR_SOURCE_URL,
   },
   {
     keywords: /\b(energik|ceria|antusias|bersemangat|aktif|energetic|cheerful|enthusiastic|lively|active)\b/i,
-    sourceUrl: 'https://images.unsplash.com/photo-1531123897727-8f129e1688ce?auto=format&fit=crop&w=512&h=512&q=80',
+    sourceUrl: DEFAULT_AVATAR_SOURCE_URL,
   },
   {
     keywords: /\b(kreatif|imajinatif|kreativitas|creative|imaginative|playful|artistik|artistic)\b/i,
-    sourceUrl: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=512&h=512&q=80',
+    sourceUrl: DEFAULT_AVATAR_SOURCE_URL,
   },
 ];
 
@@ -50,6 +51,9 @@ function isValidAvatarUrl(sourceUrl) {
     const parsedUrl = new URL(sourceUrl);
     return parsedUrl.protocol === 'https:'
       && Boolean(parsedUrl.hostname)
+      && /\.(?:jpe?g|png)$/i.test(parsedUrl.pathname)
+      && !parsedUrl.search
+      && !parsedUrl.hash
       && !parsedUrl.username
       && !parsedUrl.password
       && !['localhost', '127.0.0.1', '::1'].includes(parsedUrl.hostname.toLowerCase());
@@ -269,9 +273,10 @@ router.post('/create', verifyToken, async (req, res) => {
     }
 
     const requestedSourceUrl = typeof req.body.sourceUrl === 'string' ? req.body.sourceUrl.trim() : '';
-    const sourceUrl = requestedSourceUrl || getPersonaAvatarUrl(video.persona) || DEFAULT_AVATAR_SOURCE_URL;
-    if (!isValidAvatarUrl(sourceUrl)) {
-      return res.status(400).json({ success: false, error: 'URL avatar harus berupa URL publik HTTPS yang valid.' });
+    const personaSourceUrl = requestedSourceUrl || getPersonaAvatarUrl(video.persona);
+    const sourceUrl = isValidAvatarUrl(personaSourceUrl) ? personaSourceUrl : (requestedSourceUrl ? '' : DEFAULT_AVATAR_SOURCE_URL);
+    if (!sourceUrl || !isValidAvatarUrl(sourceUrl)) {
+      return res.status(400).json({ success: false, error: 'URL avatar harus berupa URL publik HTTPS yang berakhiran .jpg, .jpeg, atau .png tanpa query parameter.' });
     }
 
     const providerSettings = await getProviderSettings(req.user.id);
@@ -314,6 +319,18 @@ router.post('/create', verifyToken, async (req, res) => {
           if (!elevenLabsKey) throw new Error('API key suara ElevenLabs belum disimpan. Buka Manajemen API untuk menambahkannya.');
           headers['x-api-key-external'] = JSON.stringify({ elevenlabs: elevenLabsKey });
           script = { type: 'text', input: narrationText, provider: { type: 'elevenlabs', voice_id: voiceId.trim() } };
+        } else {
+          const didVoiceId = typeof voiceId === 'string' && voiceId.trim()
+            ? voiceId.trim()
+            : DEFAULT_DID_VOICE_ID;
+          script = {
+            type: 'text',
+            input: narrationText,
+            provider: {
+              type: 'microsoft',
+              voice_id: didVoiceId,
+            },
+          };
         }
         const data_payload = { source_url: sourceUrl, script };
         console.log('Payload D-ID:', data_payload);
