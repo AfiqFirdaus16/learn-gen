@@ -47,7 +47,12 @@ function getPersonaAvatarUrl(persona) {
 
 function isValidAvatarUrl(sourceUrl) {
   try {
-    return ['http:', 'https:'].includes(new URL(sourceUrl).protocol);
+    const parsedUrl = new URL(sourceUrl);
+    return parsedUrl.protocol === 'https:'
+      && Boolean(parsedUrl.hostname)
+      && !parsedUrl.username
+      && !parsedUrl.password
+      && !['localhost', '127.0.0.1', '::1'].includes(parsedUrl.hostname.toLowerCase());
   } catch {
     return false;
   }
@@ -227,12 +232,13 @@ router.post('/', verifyToken, async (req, res) => {
 router.post('/create', verifyToken, async (req, res) => {
   try {
     const { videoId, scriptText, voiceId } = req.body;
+    const narrationText = typeof scriptText === 'string' ? scriptText.trim() : '';
 
     // Validasi input
-    if (!scriptText) {
+    if (!narrationText) {
       return res.status(400).json({
         success: false,
-        error: 'scriptText wajib diisi.'
+        error: 'scriptText wajib diisi dengan teks narasi yang valid.'
       });
     }
 
@@ -263,9 +269,9 @@ router.post('/create', verifyToken, async (req, res) => {
     }
 
     const requestedSourceUrl = typeof req.body.sourceUrl === 'string' ? req.body.sourceUrl.trim() : '';
-    const sourceUrl = requestedSourceUrl || getPersonaAvatarUrl(video.persona);
+    const sourceUrl = requestedSourceUrl || getPersonaAvatarUrl(video.persona) || DEFAULT_AVATAR_SOURCE_URL;
     if (!isValidAvatarUrl(sourceUrl)) {
-      return res.status(400).json({ success: false, error: 'URL avatar harus berupa URL HTTP atau HTTPS yang valid.' });
+      return res.status(400).json({ success: false, error: 'URL avatar harus berupa URL publik HTTPS yang valid.' });
     }
 
     const providerSettings = await getProviderSettings(req.user.id);
@@ -301,15 +307,17 @@ router.post('/create', verifyToken, async (req, res) => {
       case 'elevenlabs':
       case 'd-id': {
         const headers = { Authorization: await getDIdAuthHeader(req.user.id), 'Content-Type': 'application/json' };
-        let script = { type: 'text', input: scriptText };
+        let script = { type: 'text', input: narrationText };
         if (voiceProvider === 'elevenlabs') {
           if (!voiceId?.trim()) return res.status(400).json({ success: false, error: 'Voice ID ElevenLabs wajib diisi.' });
           const elevenLabsKey = await getSavedApiKey(req.user.id, 'elevenlabs', 'voice');
           if (!elevenLabsKey) throw new Error('API key suara ElevenLabs belum disimpan. Buka Manajemen API untuk menambahkannya.');
           headers['x-api-key-external'] = JSON.stringify({ elevenlabs: elevenLabsKey });
-          script = { type: 'text', input: scriptText, provider: { type: 'elevenlabs', voice_id: voiceId.trim() } };
+          script = { type: 'text', input: narrationText, provider: { type: 'elevenlabs', voice_id: voiceId.trim() } };
         }
-        const response = await axios.post(`${D_ID_API_BASE}/talks`, { source_url: sourceUrl, script }, { headers });
+        const data_payload = { source_url: sourceUrl, script };
+        console.log('Payload D-ID:', data_payload);
+        const response = await axios.post(`${D_ID_API_BASE}/talks`, data_payload, { headers });
         providerVideoId = response.data.id;
         providerLabel = voiceProvider === 'elevenlabs' ? 'D-ID + ElevenLabs' : 'D-ID';
         break;
@@ -347,17 +355,16 @@ router.post('/create', verifyToken, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('D-ID Video Creation Error:', error.response?.data || error.message);
-
-    // Log error detail untuk debugging
-    if (error.response?.data) {
-      console.error('D-ID API Response:', error.response.data);
-    }
+    const providerError = error.response?.data;
+    const providerMessage = typeof providerError === 'string'
+      ? providerError
+      : providerError?.message || providerError?.description || providerError?.error?.message;
+    console.error('D-ID Video Creation Error:', providerError || error.message);
 
     return res.status(error.response?.status || 500).json({
       success: false,
-      error: error.response?.data?.message || 'Gagal membuat video dengan D-ID API.',
-      details: error.message,
+      error: providerMessage || error.message || 'Gagal membuat video dengan D-ID API.',
+      details: providerError || error.message,
       provider: req.body?.provider || 'video-provider'
     });
   }
