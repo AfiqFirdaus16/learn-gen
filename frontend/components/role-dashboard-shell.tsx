@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Bell, BookOpen, ClipboardCheck, KeyRound, LayoutDashboard, LogOut, Users, Video } from 'lucide-react';
+import { Bell, BookOpen, ClipboardCheck, KeyRound, LayoutDashboard, LogOut, School, Users, Video } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -15,6 +15,7 @@ const navigation = {
     { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
     { label: 'Manajemen API', href: '/dashboard/api-keys', icon: KeyRound },
     { label: 'Manajemen Pengguna', href: '/admin/users', icon: Users },
+    { label: 'Manajemen Kelas', href: '/admin/classes', icon: School },
     { label: 'Manajemen Materi', href: '/admin/materials', icon: BookOpen },
     { label: 'Manajemen Tes', href: '/admin/tests', icon: ClipboardCheck },
   ],
@@ -24,6 +25,7 @@ const navigation = {
     { label: 'Buat Materi', href: '/dosen/buat-materi', icon: Video },
     { label: 'Riwayat Materi', href: '/dosen/riwayat-materi', icon: ClipboardCheck },
     { label: 'Pengaturan Materi', href: '/dosen/set-materi', icon: BookOpen },
+    { label: 'Manajemen Kelas', href: '/dosen/classes', icon: School },
     { label: 'Pengaturan Tes', href: '/dosen/set-test', icon: ClipboardCheck },
   ],
   mahasiswa: [
@@ -59,7 +61,7 @@ export function RoleDashboardShell({ role, children }: { role: Role; children: R
           <p className="text-xs text-slate-500">Portal {roleLabel[role]}</p>
         </div>
       </Link>
-      <nav className="mt-7 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">{items.map((item) => { const Icon = item.icon; const active = pathname === item.href; return <Link key={item.href} href={item.href} className={`flex shrink-0 items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${active ? 'bg-[#123b78] text-white shadow-sm' : 'text-slate-600 hover:bg-blue-50 hover:text-[#123b78]'}`}><Icon className="size-4" />{item.label}</Link>; })}</nav>
+      <nav className="mt-7 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">{items.map((item) => { const Icon = item.icon; const active = pathname === item.href || (item.href.endsWith('/classes') && pathname.startsWith(`${item.href}/`)); return <Link key={item.href} href={item.href} className={`flex shrink-0 items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${active ? 'bg-[#123b78] text-white shadow-sm' : 'text-slate-600 hover:bg-blue-50 hover:text-[#123b78]'}`}><Icon className="size-4" />{item.label}</Link>; })}</nav>
       <div className="mt-auto border-t border-slate-200 pt-5"><button type="button" onClick={handleLogout} disabled={isLoggingOut} className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-slate-600 transition-colors hover:bg-blue-50 hover:text-[#123b78] disabled:opacity-60"><LogOut className="size-4" />Keluar</button></div>
     </aside>
     <div className="min-w-0 flex-1">

@@ -13,7 +13,7 @@ const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 const router = express.Router();
 const validRoles = ['ADMIN', 'DOSEN', 'MAHASISWA'];
 const publicUserSelect = {
-  id: true, nama: true, email: true, role: true, createdAt: true, updatedAt: true,
+  id: true, nama: true, email: true, nim: true, role: true, createdAt: true, updatedAt: true,
   kelasDiikuti: { select: { id: true, namaKelas: true } },
 };
 
@@ -58,6 +58,7 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { nama, email, password, role } = req.body;
+    const nim = typeof req.body.nim === 'string' ? req.body.nim.trim() : '';
     if (!nama?.trim() || !email?.trim() || !password || !role) {
       return res.status(400).json({ error: 'Nama, email, password, dan peran wajib diisi' });
     }
@@ -67,6 +68,8 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Peran pengguna tidak valid' });
     }
     if (password.length < 6) return res.status(400).json({ error: 'Password minimal 6 karakter' });
+    if (nim.length > 50) return res.status(400).json({ error: 'NIM maksimal 50 karakter.' });
+    if (nim && normalizedRole !== 'MAHASISWA') return res.status(400).json({ error: 'NIM hanya dapat diisi untuk mahasiswa.' });
 
     const parsedClasses = await parseClassIds(req.body.kelasIds);
     if (parsedClasses.error) return res.status(400).json({ error: parsedClasses.error });
@@ -76,6 +79,7 @@ router.post('/', async (req, res) => {
       data: {
         nama: nama.trim(),
         email: email.trim().toLowerCase(),
+        nim: nim || null,
         password: await bcrypt.hash(password, 10),
         role: normalizedRole,
         kelasDiikuti: { connect: parsedClasses.kelasIds.map((id) => ({ id })) },
@@ -84,7 +88,7 @@ router.post('/', async (req, res) => {
     });
     res.status(201).json({ success: true, user });
   } catch (error) {
-    if (error?.code === 'P2002') return res.status(409).json({ error: 'Email sudah digunakan' });
+    if (error?.code === 'P2002') return res.status(409).json({ error: error.meta?.target?.includes?.('nim') ? 'NIM sudah digunakan.' : 'Email sudah digunakan' });
     res.status(500).json({ error: 'Gagal membuat pengguna' });
   }
 });
@@ -93,6 +97,7 @@ router.put('/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     const { nama, email, password, role } = req.body;
+    const nim = typeof req.body.nim === 'string' ? req.body.nim.trim() : '';
     if (!Number.isInteger(id) || !nama?.trim() || !email?.trim() || !role) {
       return res.status(400).json({ error: 'Data pengguna tidak lengkap' });
     }
@@ -102,6 +107,8 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ error: 'Peran pengguna tidak valid' });
     }
     if (password && password.length < 6) return res.status(400).json({ error: 'Password minimal 6 karakter' });
+    if (nim.length > 50) return res.status(400).json({ error: 'NIM maksimal 50 karakter.' });
+    if (nim && normalizedRole !== 'MAHASISWA') return res.status(400).json({ error: 'NIM hanya dapat diisi untuk mahasiswa.' });
     if (id === req.user.id && normalizedRole !== 'ADMIN') return res.status(400).json({ error: 'Admin tidak dapat menghapus perannya sendiri' });
 
     const hasClassSelection = Object.hasOwn(req.body, 'kelasIds');
@@ -109,7 +116,7 @@ router.put('/:id', async (req, res) => {
     if (parsedClasses.error) return res.status(400).json({ error: parsedClasses.error });
     if (normalizedRole !== 'MAHASISWA' && parsedClasses.kelasIds.length) return res.status(400).json({ error: 'Kelas hanya dapat ditetapkan pada akun mahasiswa.' });
 
-    const data = { nama: nama.trim(), email: email.trim().toLowerCase(), role: normalizedRole };
+    const data = { nama: nama.trim(), email: email.trim().toLowerCase(), nim: nim || null, role: normalizedRole };
     if (password) data.password = await bcrypt.hash(password, 10);
     if (hasClassSelection || normalizedRole !== 'MAHASISWA') {
       data.kelasDiikuti = { set: parsedClasses.kelasIds.map((kelasId) => ({ id: kelasId })) };
@@ -117,7 +124,7 @@ router.put('/:id', async (req, res) => {
     const user = await prisma.user.update({ where: { id }, data, select: publicUserSelect });
     res.json({ success: true, user });
   } catch (error) {
-    if (error?.code === 'P2002') return res.status(409).json({ error: 'Email sudah digunakan' });
+    if (error?.code === 'P2002') return res.status(409).json({ error: error.meta?.target?.includes?.('nim') ? 'NIM sudah digunakan.' : 'Email sudah digunakan' });
     if (error?.code === 'P2025') return res.status(404).json({ error: 'Pengguna tidak ditemukan' });
     res.status(500).json({ error: 'Gagal memperbarui pengguna' });
   }
