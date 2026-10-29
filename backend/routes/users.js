@@ -12,7 +12,20 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 const router = express.Router();
 const validRoles = ['ADMIN', 'DOSEN', 'MAHASISWA'];
-const publicUserSelect = { id: true, nama: true, email: true, role: true, createdAt: true, updatedAt: true };
+const publicUserSelect = {
+  id: true, nama: true, email: true, role: true, createdAt: true, updatedAt: true,
+  kelasDiikuti: { select: { id: true, namaKelas: true } },
+};
+
+async function parseClassIds(value) {
+  const kelasIds = Array.isArray(value) ? [...new Set(value.map(Number))] : [];
+  if (kelasIds.some((id) => !Number.isInteger(id) || id < 1)) return { error: 'Pilihan kelas tidak valid.' };
+  if (kelasIds.length) {
+    const count = await prisma.kelas.count({ where: { id: { in: kelasIds } } });
+    if (count !== kelasIds.length) return { error: 'Satu atau lebih kelas tidak ditemukan.' };
+  }
+  return { kelasIds };
+}
 
 const normalizeRole = (role) => {
   const normalized = String(role ?? '').trim().toUpperCase();
@@ -55,12 +68,17 @@ router.post('/', async (req, res) => {
     }
     if (password.length < 6) return res.status(400).json({ error: 'Password minimal 6 karakter' });
 
+    const parsedClasses = await parseClassIds(req.body.kelasIds);
+    if (parsedClasses.error) return res.status(400).json({ error: parsedClasses.error });
+    if (normalizedRole !== 'MAHASISWA' && parsedClasses.kelasIds.length) return res.status(400).json({ error: 'Kelas hanya dapat ditetapkan pada akun mahasiswa.' });
+
     const user = await prisma.user.create({
       data: {
         nama: nama.trim(),
         email: email.trim().toLowerCase(),
         password: await bcrypt.hash(password, 10),
         role: normalizedRole,
+        kelasDiikuti: { connect: parsedClasses.kelasIds.map((id) => ({ id })) },
       },
       select: publicUserSelect,
     });
@@ -86,8 +104,16 @@ router.put('/:id', async (req, res) => {
     if (password && password.length < 6) return res.status(400).json({ error: 'Password minimal 6 karakter' });
     if (id === req.user.id && normalizedRole !== 'ADMIN') return res.status(400).json({ error: 'Admin tidak dapat menghapus perannya sendiri' });
 
+    const hasClassSelection = Object.hasOwn(req.body, 'kelasIds');
+    const parsedClasses = await parseClassIds(hasClassSelection ? req.body.kelasIds : undefined);
+    if (parsedClasses.error) return res.status(400).json({ error: parsedClasses.error });
+    if (normalizedRole !== 'MAHASISWA' && parsedClasses.kelasIds.length) return res.status(400).json({ error: 'Kelas hanya dapat ditetapkan pada akun mahasiswa.' });
+
     const data = { nama: nama.trim(), email: email.trim().toLowerCase(), role: normalizedRole };
     if (password) data.password = await bcrypt.hash(password, 10);
+    if (hasClassSelection || normalizedRole !== 'MAHASISWA') {
+      data.kelasDiikuti = { set: parsedClasses.kelasIds.map((kelasId) => ({ id: kelasId })) };
+    }
     const user = await prisma.user.update({ where: { id }, data, select: publicUserSelect });
     res.json({ success: true, user });
   } catch (error) {

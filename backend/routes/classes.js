@@ -14,10 +14,10 @@ const router = express.Router();
 router.use(verifyToken);
 
 router.get('/', async (req, res) => {
-  if (req.user.role !== 'DOSEN') return res.status(403).json({ error: 'Akses hanya untuk dosen.' });
+  if (!['DOSEN', 'ADMIN'].includes(req.user.role)) return res.status(403).json({ error: 'Akses hanya untuk dosen atau admin.' });
   try {
     const classes = await prisma.kelas.findMany({
-      where: { dosenId: req.user.id },
+      where: req.user.role === 'DOSEN' ? { dosenId: req.user.id } : undefined,
       select: { id: true, namaKelas: true },
       orderBy: { namaKelas: 'asc' },
     });
