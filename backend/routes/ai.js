@@ -66,6 +66,7 @@ async function getAvailableGeminiModels(apiKey) {
 
     return models
         .filter((model) => model.supportedGenerationMethods?.includes('generateContent'))
+        .filter((model) => !/-tts(?:-|$)/i.test(model.name))
         .map((model) => model.name.replace(/^models\//, ''));
 }
 
