@@ -26,6 +26,7 @@ model User {
   
   // Data Profil Pengguna
   nama      String
+  nim       String?  @unique
   email     String   @unique 
   password  String   
   role      Role     @default(MAHASISWA) 
@@ -137,7 +138,8 @@ model Test {
 
 model Kelas {
   id        Int      @id @default(autoincrement())
-  namaKelas String
+  namaKelas String   @unique
+  deskripsi String?  @db.Text
   dosenId   Int?
   dosen     User?    @relation("KelasDosen", fields: [dosenId], references: [id], onDelete: SetNull)
   mahasiswa User[]   @relation("KelasMahasiswa")
