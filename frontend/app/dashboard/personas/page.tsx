@@ -8,7 +8,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { deletePersona, getStoredPersonas, savePersona, type LearningStyle, type PersonaItem } from '@/lib/persona-storage';
-import { API_BASE_URL } from '@/lib/api-config';
 import { getRoleHomeRoute } from '@/lib/auth';
 
 const learningStyles: { value: LearningStyle; label: string; description: string }[] = [
@@ -18,50 +17,18 @@ const learningStyles: { value: LearningStyle; label: string; description: string
   { value: 'reading', label: 'Membaca & menulis', description: 'Mengutamakan poin penting dan rangkuman teks.' },
 ];
 
-interface ElevenLabsVoice {
-  voice_id: string;
-  name?: string;
-  gender?: string;
-  language?: string;
-  category?: string;
-  labels?: string[] | Record<string, string | number | boolean>;
-  description?: string;
-}
-interface ElevenLabsAssetsResponse {
-  success: boolean;
-  raw_voices?: { voices?: ElevenLabsVoice[] };
-}
-
-function getElevenLabsThemeLabel(voice?: ElevenLabsVoice): string {
-  if (!voice) return 'ElevenLabs Theme';
-
-  const labelValues = Array.isArray(voice.labels)
-    ? voice.labels
-    : voice.labels
-      ? Object.values(voice.labels)
-      : [];
-
-  const normalizedValues = [voice.category, ...labelValues.map(String), voice.description, voice.name]
-    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
-
-  const keywords = normalizedValues.join(' ').toLowerCase();
-
-  if (keywords.includes('professional') || keywords.includes('formal') || keywords.includes('serious')) return 'Professional Coach';
-  if (keywords.includes('warm') || keywords.includes('friendly') || keywords.includes('gentle')) return 'Warm Mentor';
-  if (keywords.includes('energetic') || keywords.includes('youth') || keywords.includes('excited')) return 'Energetic Host';
-  if (keywords.includes('calm') || keywords.includes('soft') || keywords.includes('soothing')) return 'Calm Guide';
-  if (keywords.includes('clarity') || keywords.includes('clear') || keywords.includes('news')) return 'Clear Presenter';
-
-  return 'ElevenLabs Theme';
-}
+const personaVoiceProfiles: Record<PersonaItem['tone'], { voiceId: string; voiceName: string }> = {
+  ramah: { voiceId: 'id-ID-GadisNeural', voiceName: 'Gadis (Microsoft Indonesia)' },
+  formal: { voiceId: 'id-ID-ArdiNeural', voiceName: 'Ardi (Microsoft Indonesia)' },
+  energik: { voiceId: 'id-ID-GadisNeural', voiceName: 'Gadis (Microsoft Indonesia)' },
+};
 
 export default function PersonasPage() {
   const [personas, setPersonas] = useState<PersonaItem[]>([]);
-  const [voices, setVoices] = useState<ElevenLabsVoice[]>([]);
-  const [loadingAssets, setLoadingAssets] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [homeHref, setHomeHref] = useState('/admin');
-  const [form, setForm] = useState({ name: '', learningStyle: 'visual' as LearningStyle, voiceId: '', level: 'pemula' as PersonaItem['level'], tone: 'ramah' as PersonaItem['tone'], notes: '' });
+  const [form, setForm] = useState({ name: '', learningStyle: 'visual' as LearningStyle, level: 'pemula' as PersonaItem['level'], tone: 'ramah' as PersonaItem['tone'], notes: '' });
 
   useEffect(() => {
     setHomeHref(getRoleHomeRoute());
@@ -73,29 +40,7 @@ export default function PersonasPage() {
       setPersonas(storedPersonas);
     };
 
-    const loadAssets = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/ai/elevenlabs-assets`);
-        const json = await response.json() as ElevenLabsAssetsResponse;
-        if (!json.success) throw new Error();
-
-        const availableVoices = json.raw_voices?.voices || [];
-        const prioritizedVoices = availableVoices.filter((voice) => voice.language === 'Indonesian' || voice.language === 'id-ID');
-        const nextVoices = prioritizedVoices.length ? prioritizedVoices : availableVoices;
-        setVoices(nextVoices);
-
-        if (nextVoices.length && !form.voiceId) {
-          setForm((previous) => ({ ...previous, voiceId: nextVoices[0].voice_id }));
-        }
-      } catch {
-        setError('Daftar suara ElevenLabs belum dapat dimuat. Pastikan server backend sedang berjalan.');
-      } finally {
-        setLoadingAssets(false);
-      }
-    };
-
     loadPersonas();
-    loadAssets();
   }, []);
 
   const update = (field: string, value: string) => setForm((previous) => ({ ...previous, [field]: value }));
@@ -104,29 +49,35 @@ export default function PersonasPage() {
     event.preventDefault();
     setError('');
 
-    const voice = voices.find((item) => item.voice_id === form.voiceId);
-    if (!form.name.trim() || !voice) {
-      setError('Lengkapi nama dan pilih suara ElevenLabs untuk menyimpan persona.');
+    if (!form.name.trim()) {
+      setError('Nama persona wajib diisi.');
       return;
     }
 
-    const themeLabel = getElevenLabsThemeLabel(voice);
+    const voice = personaVoiceProfiles[form.tone];
     const persona: Omit<PersonaItem, 'id' | 'createdAt'> & { id?: string } = {
       name: form.name.trim(),
       learningStyle: form.learningStyle,
       accent: 'American',
-      avatarId: `elevenlabs-${voice.voice_id}`,
-      avatarName: `Tema ${themeLabel}`,
-      voiceId: voice.voice_id,
-      voiceName: voice.name || 'Suara ElevenLabs',
+      avatarId: `did-${voice.voiceId}`,
+      avatarName: `Avatar ${form.tone}`,
+      voiceId: voice.voiceId,
+      voiceName: voice.voiceName,
       level: form.level,
       tone: form.tone,
       notes: form.notes.trim(),
     };
 
-    const nextPersonas = await savePersona(persona);
-    setPersonas(nextPersonas);
-    setForm({ name: '', learningStyle: 'visual', voiceId: voices[0]?.voice_id || '', level: 'pemula', tone: 'ramah', notes: '' });
+    setIsSaving(true);
+    try {
+      const nextPersonas = await savePersona(persona);
+      setPersonas(nextPersonas);
+      setForm({ name: '', learningStyle: 'visual', level: 'pemula', tone: 'ramah', notes: '' });
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Gagal menyimpan persona.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -144,9 +95,9 @@ export default function PersonasPage() {
               <div className="space-y-2"><Label>Gaya belajar</Label><Select value={form.learningStyle} onValueChange={(value) => update('learningStyle', value ?? 'visual')}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{learningStyles.map((style) => <SelectItem key={style.value} value={style.value}>{style.label}</SelectItem>)}</SelectContent></Select></div>
               <div className="space-y-2"><Label>Tingkat pemahaman</Label><Select value={form.level} onValueChange={(value) => update('level', value ?? 'pemula')}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pemula">Pemula</SelectItem><SelectItem value="menengah">Menengah</SelectItem><SelectItem value="lanjutan">Lanjutan</SelectItem></SelectContent></Select></div>
               <div className="space-y-2"><Label>Nada penyampaian</Label><Select value={form.tone} onValueChange={(value) => update('tone', value ?? 'ramah')}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ramah">Ramah dan suportif</SelectItem><SelectItem value="formal">Formal dan terstruktur</SelectItem><SelectItem value="energik">Energik dan interaktif</SelectItem></SelectContent></Select></div>
-              <div className="space-y-2 sm:col-span-2"><Label>Suara ElevenLabs</Label><Select disabled={loadingAssets || voices.length === 0} value={form.voiceId} onValueChange={(value) => update('voiceId', value ?? '')}><SelectTrigger className="w-full"><SelectValue placeholder={loadingAssets ? 'Memuat suara...' : voices.length === 0 ? 'Suara tidak tersedia' : 'Pilih suara'} /></SelectTrigger><SelectContent>{voices.map((voice) => <SelectItem key={voice.voice_id} value={voice.voice_id}>{voice.name || 'Suara ElevenLabs'} {voice.category ? `· ${voice.category}` : ''}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-2 sm:col-span-2"><Label>Suara video</Label><div className="rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700">{personaVoiceProfiles[form.tone].voiceName} · dipilih otomatis dari nada penyampaian</div></div>
               <div className="space-y-2 sm:col-span-2"><Label htmlFor="notes">Kebutuhan khusus (opsional)</Label><Input id="notes" value={form.notes} onChange={(e) => update('notes', e.target.value)} placeholder="Contoh: gunakan contoh sehari-hari dan bahasa sederhana" /></div>
-              <div className="sm:col-span-2"><p className="rounded-lg bg-violet-50 p-3 text-sm text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">{learningStyles.find((style) => style.value === form.learningStyle)?.description}</p><p className="mt-3 text-xs text-slate-600 dark:text-slate-300">Avatar akan dibuat otomatis dari tema suara ElevenLabs yang dipilih, agar tetap konsisten dengan gaya presentasi yang tersedia.</p><Button type="submit" disabled={loadingAssets || voices.length === 0} className="mt-4 w-full bg-violet-600 hover:bg-violet-700">Simpan persona</Button></div>
+              <div className="sm:col-span-2"><p className="rounded-lg bg-violet-50 p-3 text-sm text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">{learningStyles.find((style) => style.value === form.learningStyle)?.description}</p><p className="mt-3 text-xs text-slate-600 dark:text-slate-300">Suara Microsoft D-ID dipilih otomatis berdasarkan nada penyampaian persona.</p><Button type="submit" disabled={isSaving} className="mt-4 w-full bg-violet-600 hover:bg-violet-700">{isSaving ? 'Menyimpan persona...' : 'Simpan persona'}</Button></div>
             </form>
           </CardContent></Card>
           <div className="space-y-4"><div><h2 className="text-lg font-semibold">Persona tersimpan ({personas.length})</h2><p className="text-sm text-slate-600 dark:text-slate-300">Pilih salah satunya saat membuat video.</p></div>

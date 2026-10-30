@@ -31,10 +31,10 @@ export async function getStoredPersonas(): Promise<PersonaItem[]> {
 
 export async function savePersona(persona: Omit<PersonaItem, 'id' | 'createdAt'> & { id?: string }): Promise<PersonaItem[]> {
   try {
-    const safeAvatarId = persona.avatarId || 'elevenlabs-auto-avatar';
-    const safeAvatarName = persona.avatarName || 'Tema ElevenLabs';
-    const safeVoiceId = persona.voiceId || 'elevenlabs-auto-voice';
-    const safeVoiceName = persona.voiceName || 'Suara ElevenLabs';
+    const safeAvatarId = persona.avatarId || 'did-auto-avatar';
+    const safeAvatarName = persona.avatarName || 'Avatar persona';
+    const safeVoiceId = persona.voiceId || 'id-ID-ArdiNeural';
+    const safeVoiceName = persona.voiceName || 'Ardi (Microsoft Indonesia)';
 
     const response = await authenticatedFetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000'}/api/personas`, {
       method: 'POST',
@@ -54,8 +54,8 @@ export async function savePersona(persona: Omit<PersonaItem, 'id' | 'createdAt'>
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || 'Gagal menyimpan persona');
     return await getStoredPersonas();
-  } catch {
-    return [];
+  } catch (error) {
+    throw error instanceof Error ? error : new Error('Gagal menyimpan persona.');
   }
 }
 

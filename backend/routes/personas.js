@@ -10,6 +10,12 @@ const { PrismaClient } = pkg;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 const router = express.Router();
+const personaVoiceProfiles = {
+  ramah: { voiceId: 'id-ID-GadisNeural', voiceName: 'Gadis (Microsoft Indonesia)' },
+  formal: { voiceId: 'id-ID-ArdiNeural', voiceName: 'Ardi (Microsoft Indonesia)' },
+  energik: { voiceId: 'id-ID-GadisNeural', voiceName: 'Gadis (Microsoft Indonesia)' },
+};
+const supportedLearningStyles = new Set(['visual', 'auditory', 'kinesthetic', 'reading']);
 
 const serializePersona = (persona) => ({
   id: String(persona.id),
@@ -47,23 +53,30 @@ router.post('/', verifyToken, async (req, res) => {
     const {
       name,
       learningStyle,
-      avatarId,
-      avatarName,
-      voiceId,
-      voiceName,
       level,
       tone,
       notes,
     } = req.body;
 
-    if (!name?.trim() || !learningStyle) {
+    if (typeof name !== 'string' || !name.trim() || !learningStyle) {
       return res.status(400).json({ error: 'Nama persona dan gaya belajar wajib diisi.' });
     }
+    if (name.trim().length > 100) {
+      return res.status(400).json({ error: 'Nama persona harus berupa teks maksimal 100 karakter.' });
+    }
+    if (!supportedLearningStyles.has(learningStyle)) {
+      return res.status(400).json({ error: 'Gaya belajar tidak valid.' });
+    }
+    if (tone !== undefined && !Object.hasOwn(personaVoiceProfiles, tone)) {
+      return res.status(400).json({ error: 'Nada persona tidak valid.' });
+    }
 
-    const resolvedVoiceId = voiceId || 'elevenlabs-default-voice';
-    const resolvedVoiceName = voiceName || 'Suara ElevenLabs';
-    const resolvedAvatarId = avatarId || `elevenlabs-${resolvedVoiceId}`;
-    const resolvedAvatarName = avatarName || `Tema ${resolvedVoiceName}`;
+    const resolvedTone = tone || 'ramah';
+    const voiceProfile = personaVoiceProfiles[resolvedTone];
+    const resolvedVoiceId = voiceProfile.voiceId;
+    const resolvedVoiceName = voiceProfile.voiceName;
+    const resolvedAvatarId = `did-${resolvedVoiceId}`;
+    const resolvedAvatarName = `Avatar ${resolvedTone}`;
 
     const persona = await prisma.persona.create({
       data: {
@@ -75,7 +88,7 @@ router.post('/', verifyToken, async (req, res) => {
         voiceId: resolvedVoiceId,
         voiceName: resolvedVoiceName,
         level: level || 'pemula',
-        tone: tone || 'ramah',
+        tone: resolvedTone,
         notes: notes || '',
       },
     });
