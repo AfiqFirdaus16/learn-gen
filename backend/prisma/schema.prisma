@@ -35,6 +35,7 @@ model User {
   videos    Video[]
   materi    Materi[] // Relasi tambahan untuk Dosen/Admin membuat materi
   tests     Test[]
+  testResults TestResult[]
   personas  Persona[]
   apiCredentials ApiCredential[]
   kelasDiampu Kelas[] @relation("KelasDosen")
@@ -127,13 +128,40 @@ model Materi {
 }
 
 model Test {
-  id        Int      @id @default(autoincrement())
-  judul     String
-  status    String   @default("DRAFT") // DRAFT atau DIBAGIKAN
-  authorId  Int
-  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          Int          @id @default(autoincrement())
+  judul       String
+  deskripsi   String?      @db.Text
+  mulaiAt     DateTime?
+  selesaiAt   DateTime?
+  durasiMenit Int?
+  status      String       @default("DRAFT")
+  authorId    Int
+  author      User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  kelasId     Int?
+  kelas       Kelas?       @relation(fields: [kelasId], references: [id], onDelete: Cascade)
+  hasil       TestResult[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([kelasId, status])
+  @@index([authorId])
+}
+
+model TestResult {
+  id          Int       @id @default(autoincrement())
+  testId      Int
+  test        Test      @relation(fields: [testId], references: [id], onDelete: Cascade)
+  mahasiswaId Int
+  mahasiswa   User      @relation(fields: [mahasiswaId], references: [id], onDelete: Cascade)
+  nilai       Float?
+  jawaban     Json?
+  mulaiAt     DateTime?
+  selesaiAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([testId, mahasiswaId])
+  @@index([mahasiswaId])
 }
 
 model Kelas {
@@ -144,6 +172,7 @@ model Kelas {
   dosen     User?    @relation("KelasDosen", fields: [dosenId], references: [id], onDelete: SetNull)
   mahasiswa User[]   @relation("KelasMahasiswa")
   materi    Materi[]
+  tests     Test[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

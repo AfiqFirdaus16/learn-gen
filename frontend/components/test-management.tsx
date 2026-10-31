@@ -1,68 +1,91 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
-import { ClipboardCheck, Loader2, Plus, Share2, X } from 'lucide-react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { Award, ClipboardCheck, Download, FileText, Loader2, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { API_BASE_URL } from '@/lib/api-config';
-import { authenticatedFetch } from '@/lib/auth';
+import { authenticatedFetch, getAdmin } from '@/lib/auth';
 
-type Test = { id: number; judul: string; status: 'DRAFT' | 'DIBAGIKAN'; createdAt: string; author: { nama: string } };
+type Test = { id: number; judul: string; deskripsi: string | null; mulaiAt: string | null; selesaiAt: string | null; durasiMenit: number | null; status: 'DRAFT' | 'AKTIF' | 'NONAKTIF' | string; createdAt: string; author: { id: number; nama: string }; kelas: { id: number; namaKelas: string; dosenId: number | null; _count?: { mahasiswa: number } } | null; _count: { hasil: number } };
+type StudentResult = { id?: number; mahasiswaId?: number; nama: string; nim: string | null; nilai?: number | null; jawaban?: unknown; mulaiAt?: string | null; selesaiAt?: string | null; status: string };
+type Option = { id: number; nama?: string; namaKelas?: string };
+type FormData = { judul: string; deskripsi: string; kelasId: string; mulaiAt: string; selesaiAt: string; durasiMenit: string; status: string };
+const emptyForm: FormData = { judul: '', deskripsi: '', kelasId: '', mulaiAt: '', selesaiAt: '', durasiMenit: '60', status: 'DRAFT' };
+const fmt = (value: string | null | undefined) => value ? new Date(value).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+const localInput = (value: string | null) => { if (!value) return ''; const date = new Date(value); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
 
-async function readResponse(response: Response) {
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || 'Permintaan gagal diproses.');
-  return data;
-}
+async function readResponse(response: Response) { const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.error || 'Permintaan gagal diproses.'); return data; }
 
 export function TestManagement({ title, eyebrow }: { title: string; eyebrow: string }) {
-  const [tests, setTests] = useState<Test[]>([]);
-  const [judul, setJudul] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [formOpen, setFormOpen] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const admin = getAdmin()?.role === 'admin';
+  const [tab, setTab] = useState<'tests' | 'results'>('tests');
+  const [tests, setTests] = useState<Test[]>([]); const [classes, setClasses] = useState<Option[]>([]); const [teachers, setTeachers] = useState<Option[]>([]);
+  const [loading, setLoading] = useState(true); const [formOpen, setFormOpen] = useState(false); const [editing, setEditing] = useState<Test | null>(null);
+  const [form, setForm] = useState<FormData>(emptyForm); const [saving, setSaving] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
+  const [search, setSearch] = useState(''); const [classFilter, setClassFilter] = useState(''); const [teacherFilter, setTeacherFilter] = useState('');
+  const [selectedTest, setSelectedTest] = useState<Test | null>(null); const [results, setResults] = useState<StudentResult[]>([]); const [resultsLoading, setResultsLoading] = useState(false); const [gradeEdits, setGradeEdits] = useState<Record<number, string>>({}); const [answer, setAnswer] = useState<StudentResult | null>(null); const [minGrade, setMinGrade] = useState(''); const [maxGrade, setMaxGrade] = useState('');
 
-  async function loadTests() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await readResponse(await authenticatedFetch(`${API_BASE_URL}/api/tests`));
-      setTests(data.tests);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Gagal memuat tes.');
-    } finally {
-      setLoading(false);
-    }
+      const query = new URLSearchParams(); if (search) query.set('search', search); if (classFilter) query.set('classId', classFilter); if (teacherFilter && admin) query.set('teacherId', teacherFilter);
+      const [testData, optionData] = await Promise.all([readResponse(await authenticatedFetch(`${API_BASE_URL}/api/tests?${query}`)), readResponse(await authenticatedFetch(`${API_BASE_URL}/api/tests/options`))]);
+      setTests(testData.tests); setClasses(optionData.classes); setTeachers(optionData.teachers);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Gagal memuat tes.'); } finally { setLoading(false); }
+  }, [search, classFilter, teacherFilter, admin]);
+  useEffect(() => { void load(); }, [load]);
+
+  async function openResults(test: Test) {
+    setSelectedTest(test); setTab('results'); setResultsLoading(true); setError('');
+    try { const data = await readResponse(await authenticatedFetch(`${API_BASE_URL}/api/tests/${test.id}/results`)); setResults(data.results); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Gagal mengambil hasil.'); }
+    finally { setResultsLoading(false); }
   }
-
-  useEffect(() => { void loadTests(); }, []);
-
-  async function submitForm(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSaving(true);
-    setError('');
+  function startEdit(test?: Test) {
+    setError(''); setEditing(test || null);
+    setForm(test ? { judul: test.judul, deskripsi: test.deskripsi || '', kelasId: String(test.kelas?.id || ''), mulaiAt: localInput(test.mulaiAt), selesaiAt: localInput(test.selesaiAt), durasiMenit: String(test.durasiMenit || 60), status: test.status } : emptyForm);
+    setFormOpen(true);
+  }
+  async function submit(event: FormEvent) {
+    event.preventDefault(); setSaving(true); setError('');
     try {
-      const data = await readResponse(await authenticatedFetch(`${API_BASE_URL}/api/tests`, { method: 'POST', body: JSON.stringify({ judul }) }));
-      setTests((current) => [data.test, ...current]);
-      setJudul('');
-      setFormOpen(false);
-      setNotice('Tes berhasil dibuat sebagai draft.');
-    } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : 'Gagal membuat tes.');
-    } finally {
-      setSaving(false);
-    }
+      const body = { ...form, kelasId: Number(form.kelasId), durasiMenit: Number(form.durasiMenit), mulaiAt: form.mulaiAt ? new Date(form.mulaiAt).toISOString() : null, selesaiAt: form.selesaiAt ? new Date(form.selesaiAt).toISOString() : null };
+      const data = await readResponse(await authenticatedFetch(`${API_BASE_URL}/api/tests${editing ? `/${editing.id}` : ''}`, { method: editing ? 'PUT' : 'POST', body: JSON.stringify(body) }));
+      setFormOpen(false); setNotice(editing ? 'Tes berhasil diperbarui.' : 'Tes berhasil dibuat.'); await load();
+      if (selectedTest?.id === data.test.id && tab === 'results') setSelectedTest(data.test);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Gagal menyimpan tes.'); } finally { setSaving(false); }
+  }
+  async function removeTest(test: Test) {
+    if (!window.confirm(`Hapus tes “${test.judul}”? Hasil pengerjaan tes ini juga akan dihapus.`)) return;
+    try { await readResponse(await authenticatedFetch(`${API_BASE_URL}/api/tests/${test.id}`, { method: 'DELETE' })); setNotice('Tes berhasil dihapus.'); if (selectedTest?.id === test.id) { setSelectedTest(null); setResults([]); } await load(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Gagal menghapus tes.'); }
+  }
+  async function toggleStatus(test: Test) {
+    const status = test.status === 'AKTIF' ? 'NONAKTIF' : 'AKTIF';
+    try { await readResponse(await authenticatedFetch(`${API_BASE_URL}/api/tests/${test.id}`, { method: 'PUT', body: JSON.stringify({ status }) })); setNotice(`Tes sekarang ${status === 'AKTIF' ? 'aktif' : 'nonaktif'}.`); await load(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Gagal mengubah status.'); }
+  }
+  async function saveGrade(result: StudentResult) {
+    if (!selectedTest || !result.id) return;
+    try { await readResponse(await authenticatedFetch(`${API_BASE_URL}/api/tests/${selectedTest.id}/results/${result.id}`, { method: 'PUT', body: JSON.stringify({ nilai: Number(gradeEdits[result.id!]) }) })); setResults((items) => items.map((item) => item.id === result.id ? { ...item, nilai: Number(gradeEdits[result.id!]) } : item)); setNotice('Nilai berhasil diperbarui.'); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Gagal menyimpan nilai.'); }
+  }
+  const shownResults = useMemo(() => results.filter((r) => (minGrade === '' || (r.nilai ?? -Infinity) >= Number(minGrade)) && (maxGrade === '' || (r.nilai ?? Infinity) <= Number(maxGrade))), [results, minGrade, maxGrade]);
+  function exportCsv() {
+    const quote = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    const rows = [['Nama Mahasiswa', 'NIM', 'Nilai', 'Mulai', 'Selesai', 'Status'], ...shownResults.map((r) => [r.nama, r.nim, r.nilai ?? '', r.mulaiAt ? fmt(r.mulaiAt) : '', r.selesaiAt ? fmt(r.selesaiAt) : '', r.status])];
+    const blob = new Blob(['\uFEFF' + rows.map((r) => r.map(quote).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `${selectedTest?.judul || 'hasil-tes'}.csv`; link.click(); URL.revokeObjectURL(link.href);
   }
 
-  async function toggleShare(test: Test) {
-    try {
-      const status = test.status === 'DIBAGIKAN' ? 'DRAFT' : 'DIBAGIKAN';
-      const data = await readResponse(await authenticatedFetch(`${API_BASE_URL}/api/tests/${test.id}`, { method: 'PUT', body: JSON.stringify({ status }) }));
-      setTests((current) => current.map((item) => item.id === test.id ? data.test : item));
-      setNotice(status === 'DIBAGIKAN' ? 'Tes dibagikan kepada siswa.' : 'Tes ditarik kembali menjadi draft.');
-    } catch (updateError) {
-      setError(updateError instanceof Error ? updateError.message : 'Gagal memperbarui tes.');
-    }
-  }
-
-  return <div className="space-y-6"><div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-sm font-semibold uppercase tracking-[0.25em] text-indigo-500">{eyebrow}</p><h1 className="mt-1 text-3xl font-bold text-slate-800">{title}</h1><p className="mt-2 text-slate-500">Buat tes dan bagikan kepada siswa.</p></div><button type="button" onClick={() => { setError(''); setFormOpen(true); }} className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"><Plus className="size-4" />Add Test</button></div><div className="grid gap-4 sm:grid-cols-3"><div className="rounded-xl border border-slate-200 border-l-4 border-l-indigo-500 bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">Total tes</p><p className="mt-1 text-3xl font-bold text-indigo-600">{tests.length}</p></div><div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">Dibagikan</p><p className="mt-1 text-3xl font-bold text-emerald-600">{tests.filter((test) => test.status === 'DIBAGIKAN').length}</p></div><div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">Draft</p><p className="mt-1 text-3xl font-bold text-amber-500">{tests.filter((test) => test.status === 'DRAFT').length}</p></div></div>{notice && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</p>}{error && !formOpen && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}<section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center gap-2 border-b border-slate-200 p-4 font-semibold text-slate-700"><ClipboardCheck className="size-5 text-indigo-600" />Daftar tes</div>{loading ? <div className="p-12 text-center text-slate-500"><Loader2 className="mx-auto mb-2 size-5 animate-spin" />Memuat tes...</div> : tests.length === 0 ? <div className="p-12 text-center text-slate-500">Belum ada tes. Klik Add Test untuk membuat tes.</div> : <div className="divide-y divide-slate-100">{tests.map((test) => <article key={test.id} className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-slate-800">{test.judul}</h2><p className="mt-1 text-xs text-slate-500">Dibuat oleh {test.author.nama} pada {new Date(test.createdAt).toLocaleDateString('id-ID')}</p></div><div className="flex items-center gap-3"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${test.status === 'DIBAGIKAN' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{test.status === 'DIBAGIKAN' ? 'Dibagikan' : 'Draft'}</span><button type="button" onClick={() => void toggleShare(test)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"><Share2 className="size-3.5" />{test.status === 'DIBAGIKAN' ? 'Tarik kembali' : 'Bagikan'}</button></div></article>)}</div>}</section>{formOpen && <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-label="Tambah tes"><form onSubmit={submitForm} className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"><div className="flex items-start justify-between"><div><h2 className="text-xl font-bold text-slate-800">Tambah tes</h2><p className="mt-1 text-sm text-slate-500">Buat judul tes terlebih dahulu, lalu bagikan kepada siswa.</p></div><button type="button" onClick={() => !saving && setFormOpen(false)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Tutup"><X className="size-5" /></button></div>{error && <p className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}<label className="mt-5 block text-sm font-semibold text-slate-700">Judul tes<input required maxLength={150} value={judul} onChange={(event) => setJudul(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" placeholder="Contoh: Evaluasi Aljabar Dasar" /></label><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setFormOpen(false)} disabled={saving} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">Batal</button><button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">{saving && <Loader2 className="size-4 animate-spin" />}Simpan tes</button></div></form></div>}</div>;
+  return <div className="space-y-6">
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#123b78]">{eyebrow}</p><h1 className="mt-1 text-3xl font-bold text-slate-800">{title}</h1><p className="mt-2 text-slate-500">Kelola jadwal tes dan pantau hasil pengerjaan mahasiswa.</p></div>{tab === 'tests' && <button onClick={() => startEdit()} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#123b78] px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-900"><Plus className="size-4"/>Tambah tes</button>}</div>
+    <div className="flex gap-2 border-b border-slate-200"><button onClick={() => setTab('tests')} className={`border-b-2 px-4 py-3 text-sm font-semibold ${tab === 'tests' ? 'border-[#123b78] text-[#123b78]' : 'border-transparent text-slate-500'}`}><ClipboardCheck className="mr-2 inline size-4"/>Manajemen Tes</button><button onClick={() => setTab('results')} className={`border-b-2 px-4 py-3 text-sm font-semibold ${tab === 'results' ? 'border-[#123b78] text-[#123b78]' : 'border-transparent text-slate-500'}`}><Award className="mr-2 inline size-4"/>Hasil Tes</button></div>
+    {notice && <div role="status" className="flex justify-between rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{notice}<button onClick={() => setNotice('')} aria-label="Tutup">×</button></div>}{error && !formOpen && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
+    {tab === 'tests' ? <>
+      <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row"><label className="relative flex-1"><Search className="absolute left-3 top-3 size-4 text-slate-400"/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cari judul tes..." className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm"/></label>{admin && <select value={teacherFilter} onChange={(e) => setTeacherFilter(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm"><option value="">Semua dosen</option>{teachers.map((t) => <option key={t.id} value={t.id}>{t.nama}</option>)}</select>}<select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm"><option value="">Semua kelas</option>{classes.map((c) => <option key={c.id} value={c.id}>{c.namaKelas}</option>)}</select></div>
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-200 p-4 font-semibold text-slate-700">Daftar tes <span className="ml-1 text-sm font-normal text-slate-400">({tests.length})</span></div>{loading ? <div className="p-12 text-center text-slate-500"><Loader2 className="mx-auto mb-2 size-5 animate-spin"/>Memuat tes...</div> : tests.length === 0 ? <div className="p-12 text-center text-slate-500">Belum ada tes untuk filter ini.</div> : <div className="overflow-x-auto"><table className="w-full min-w-[850px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-5 py-3">Tes</th><th className="px-5 py-3">Kelas</th>{admin && <th className="px-5 py-3">Dosen</th>}<th className="px-5 py-3">Jadwal</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">Peserta / selesai</th><th className="px-5 py-3">Aksi</th></tr></thead><tbody className="divide-y divide-slate-100">{tests.map((test) => <tr key={test.id}><td className="px-5 py-4"><p className="font-semibold text-slate-800">{test.judul}</p><p className="mt-1 line-clamp-1 text-xs text-slate-500">{test.deskripsi || 'Tanpa deskripsi'}</p></td><td className="px-5 py-4">{test.kelas?.namaKelas || 'Kelas belum ditetapkan'}</td>{admin && <td className="px-5 py-4">{test.author.nama}</td>}<td className="px-5 py-4 text-xs text-slate-600">{fmt(test.mulaiAt)}<br/>s/d {fmt(test.selesaiAt)}</td><td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${test.status === 'AKTIF' ? 'bg-emerald-100 text-emerald-700' : test.status === 'NONAKTIF' ? 'bg-slate-100 text-slate-600' : 'bg-amber-100 text-amber-700'}`}>{test.status}</span></td><td className="px-5 py-4">{test.kelas?._count?.mahasiswa ?? 0} / {test._count.hasil}</td><td className="px-5 py-4"><div className="flex items-center gap-1"><button title="Lihat hasil" onClick={() => void openResults(test)} className="rounded p-2 text-indigo-700 hover:bg-indigo-50"><FileText className="size-4"/></button><button title="Edit" onClick={() => startEdit(test)} className="rounded p-2 text-slate-600 hover:bg-slate-100"><Pencil className="size-4"/></button><button title={test.status === 'AKTIF' ? 'Nonaktifkan' : 'Aktifkan'} onClick={() => void toggleStatus(test)} className="rounded px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50">{test.status === 'AKTIF' ? 'Nonaktif' : 'Aktifkan'}</button><button title="Hapus" onClick={() => void removeTest(test)} className="rounded p-2 text-rose-600 hover:bg-rose-50"><Trash2 className="size-4"/></button></div></td></tr>)}</tbody></table></div>}</section>
+    </> : <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-semibold text-slate-800">{selectedTest ? `Hasil: ${selectedTest.judul}` : 'Pilih tes untuk melihat hasil'}</h2>{selectedTest && <p className="text-sm text-slate-500">{selectedTest.kelas?.namaKelas || '—'}{admin ? ` · ${selectedTest.author.nama}` : ''}</p>}</div><div className="flex flex-wrap items-center gap-2">{selectedTest && <><input aria-label="Nilai minimal" type="number" min="0" max="100" placeholder="Nilai min" value={minGrade} onChange={(e) => setMinGrade(e.target.value)} className="w-24 rounded-lg border border-slate-300 px-2 py-2 text-sm"/><input aria-label="Nilai maksimal" type="number" min="0" max="100" placeholder="Nilai maks" value={maxGrade} onChange={(e) => setMaxGrade(e.target.value)} className="w-24 rounded-lg border border-slate-300 px-2 py-2 text-sm"/><button onClick={exportCsv} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"><Download className="size-4"/>Export CSV</button></>}</div></div>
+      {!selectedTest ? <div className="p-10 text-center text-slate-500">Buka tab Manajemen Tes, lalu pilih ikon hasil pada tes yang ingin ditinjau.</div> : resultsLoading ? <div className="p-12 text-center text-slate-500"><Loader2 className="mx-auto mb-2 size-5 animate-spin"/>Memuat hasil...</div> : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-5 py-3">Mahasiswa</th><th className="px-5 py-3">NIM</th><th className="px-5 py-3">Nilai</th><th className="px-5 py-3">Mulai / selesai</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">Detail</th></tr></thead><tbody className="divide-y divide-slate-100">{shownResults.map((r) => <tr key={r.mahasiswaId}><td className="px-5 py-4 font-medium">{r.nama}</td><td className="px-5 py-4">{r.nim || '—'}</td><td className="px-5 py-4">{r.id ? <div className="flex items-center gap-2"><input aria-label={`Nilai ${r.nama}`} type="number" min="0" max="100" value={gradeEdits[r.id!] ?? r.nilai ?? ''} onChange={(e) => setGradeEdits((g) => ({ ...g, [r.id!]: e.target.value }))} className="w-20 rounded border border-slate-300 px-2 py-1"/><button onClick={() => void saveGrade(r)} className="text-xs font-semibold text-indigo-700">Simpan</button></div> : '—'}</td><td className="px-5 py-4 text-xs text-slate-600">{fmt(r.mulaiAt)}<br/>{fmt(r.selesaiAt)}</td><td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${r.status === 'SELESAI' ? 'bg-emerald-100 text-emerald-700' : r.status === 'TERLAMBAT' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600'}`}>{r.status === 'SELESAI' ? 'Selesai' : r.status === 'TERLAMBAT' ? 'Terlambat' : 'Belum mengerjakan'}</span></td><td className="px-5 py-4">{r.id && <button onClick={() => setAnswer(r)} className="font-semibold text-indigo-700 hover:underline">Lihat jawaban</button>}</td></tr>)}</tbody></table>{!shownResults.length && <p className="p-8 text-center text-slate-500">Tidak ada mahasiswa pada rentang nilai ini.</p>}</div>}</section>}
+    {formOpen && <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/40 p-4" role="dialog" aria-modal="true"><form onSubmit={submit} className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl"><div className="flex justify-between"><div><h2 className="text-xl font-bold text-slate-800">{editing ? 'Edit tes' : 'Tambah tes'}</h2><p className="mt-1 text-sm text-slate-500">Atur kelas, jadwal, durasi, dan status tes.</p></div><button type="button" onClick={() => setFormOpen(false)} aria-label="Tutup"><X className="size-5"/></button></div>{error && <p className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}<div className="mt-5 grid gap-4 sm:grid-cols-2"><label className="sm:col-span-2 text-sm font-semibold">Judul tes *<input required maxLength={150} value={form.judul} onChange={(e) => setForm({ ...form, judul: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal"/></label><label className="sm:col-span-2 text-sm font-semibold">Deskripsi<textarea value={form.deskripsi} onChange={(e) => setForm({ ...form, deskripsi: e.target.value })} rows={2} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal"/></label><label className="sm:col-span-2 text-sm font-semibold">Kelas *<select required value={form.kelasId} onChange={(e) => setForm({ ...form, kelasId: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal"><option value="">Pilih kelas</option>{classes.map((c) => <option key={c.id} value={c.id}>{c.namaKelas}</option>)}</select></label><label className="text-sm font-semibold">Mulai<input type="datetime-local" value={form.mulaiAt} onChange={(e) => setForm({ ...form, mulaiAt: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal"/></label><label className="text-sm font-semibold">Selesai<input type="datetime-local" value={form.selesaiAt} onChange={(e) => setForm({ ...form, selesaiAt: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal"/></label><label className="text-sm font-semibold">Durasi (menit) *<input required type="number" min="1" value={form.durasiMenit} onChange={(e) => setForm({ ...form, durasiMenit: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal"/></label><label className="text-sm font-semibold">Status<select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal"><option value="DRAFT">Draft</option><option value="AKTIF">Aktif</option><option value="NONAKTIF">Nonaktif</option></select></label></div><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setFormOpen(false)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold">Batal</button><button disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-[#123b78] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{saving && <Loader2 className="size-4 animate-spin"/>}Simpan</button></div></form></div>}
+    {answer && <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-4" role="dialog" aria-modal="true"><div className="max-h-[85vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl"><div className="flex justify-between"><div><h2 className="text-xl font-bold">Jawaban {answer.nama}</h2><p className="text-sm text-slate-500">NIM {answer.nim || '—'} · Nilai {answer.nilai ?? 'Belum dinilai'}</p></div><button onClick={() => setAnswer(null)} aria-label="Tutup"><X className="size-5"/></button></div><pre className="mt-5 whitespace-pre-wrap break-words rounded-xl bg-slate-50 p-4 text-sm text-slate-700">{answer.jawaban == null ? 'Belum ada data jawaban yang tersimpan.' : JSON.stringify(answer.jawaban, null, 2)}</pre></div></div>}
+  </div>;
 }
