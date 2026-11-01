@@ -20,7 +20,12 @@ const D_ID_API_BASE = 'https://api.d-id.com';
 const HEYGEN_API_BASE = 'https://api.heygen.com/v3';
 const supportedVideoProviders = new Set(['d-id', 'heygen', 'elevenlabs']);
 const DEFAULT_AVATAR_SOURCE_URL = 'https://raw.githubusercontent.com/jjranalli/nightwatch/master/tests/assets/image.png';
-const DEFAULT_DID_VOICE_ID = 'id-ID-ArdiNeural';
+const voiceMapping = {
+  anak: 'id-ID-BanyuNeural',
+  wanita: 'id-ID-GadisNeural',
+  pria: 'id-ID-ArdiNeural',
+  default: 'id-ID-GadisNeural',
+};
 const PERSONA_AVATAR_RULES = [
   {
     keywords: /\b(ramah|sabar|lembut|hangat|baik hati|friendly|patient|gentle|kind|warm)\b/i,
@@ -44,6 +49,14 @@ function getPersonaAvatarUrl(persona) {
   const personaDescription = typeof persona === 'string' ? persona.trim() : '';
   const matchingRule = PERSONA_AVATAR_RULES.find(({ keywords }) => keywords.test(personaDescription));
   return matchingRule?.sourceUrl || DEFAULT_AVATAR_SOURCE_URL;
+}
+
+function getDidVoiceId(persona) {
+  const personaDescription = typeof persona === 'string' ? persona.toLowerCase() : '';
+  if (['anak', 'sd', 'bocah'].some((keyword) => personaDescription.includes(keyword))) return voiceMapping.anak;
+  if (['wanita', 'perempuan'].some((keyword) => personaDescription.includes(keyword))) return voiceMapping.wanita;
+  if (['pria', 'laki'].some((keyword) => personaDescription.includes(keyword))) return voiceMapping.pria;
+  return voiceMapping.default;
 }
 
 function isValidAvatarUrl(sourceUrl) {
@@ -320,9 +333,10 @@ router.post('/create', verifyToken, async (req, res) => {
           headers['x-api-key-external'] = JSON.stringify({ elevenlabs: elevenLabsKey });
           script = { type: 'text', input: narrationText, provider: { type: 'elevenlabs', voice_id: voiceId.trim() } };
         } else {
-          const didVoiceId = typeof voiceId === 'string' && voiceId.trim()
-            ? voiceId.trim()
-            : DEFAULT_DID_VOICE_ID;
+          const personaDescription = typeof req.body.persona === 'string' && req.body.persona.trim()
+            ? req.body.persona
+            : video.persona;
+          const didVoiceId = getDidVoiceId(personaDescription);
           script = {
             type: 'text',
             input: narrationText,
