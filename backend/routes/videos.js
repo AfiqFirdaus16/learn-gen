@@ -19,6 +19,13 @@ const router = express.Router();
 const D_ID_API_BASE = 'https://api.d-id.com';
 const HEYGEN_API_BASE = 'https://api.heygen.com/v3';
 const supportedVideoProviders = new Set(['d-id', 'heygen', 'elevenlabs']);
+const supportedEnglishAccents = new Set([
+  'American (General American)', 'British (Received Pronunciation / RP)', 'British (Modern Standard)',
+  'Australian', 'Canadian', 'Irish', 'Scottish', 'New Zealand', 'South African', 'Indian English',
+  'Singaporean English', 'Filipino English', 'Neutral / International English', 'American Southern',
+  'American New York', 'British Cockney', 'British Northern', 'Soft & Calm English',
+  'Clear & Professional English', 'Energetic & Friendly English',
+]);
 const DEFAULT_AVATAR_SOURCE_URL = 'https://raw.githubusercontent.com/jjranalli/nightwatch/master/tests/assets/image.png';
 const voiceMapping = {
   anak: 'id-ID-BanyuNeural',
@@ -186,8 +193,8 @@ router.get('/', verifyToken, async (req, res) => {
 
 router.post('/', verifyToken, async (req, res) => {
   try {
-    const { learnerName, topic, learningStyle, persona, duration, durationSeconds, accentType, provider, voiceProvider, script, scriptDescription, generatedPrompt, elevenlabsVideoId, status = 'processing' } = req.body;
-    if (!topic || !learningStyle || !persona || !duration || !accentType) {
+    const { learnerName, topic, learningStyle, persona, accent, duration, durationSeconds, accentType, provider, voiceProvider, script, scriptDescription, generatedPrompt, elevenlabsVideoId, status = 'processing' } = req.body;
+    if (!topic || !learningStyle || !persona || !duration || !accentType || !supportedEnglishAccents.has(accent)) {
       return res.status(400).json({ error: 'Data materi video belum lengkap.' });
     }
     if (durationSeconds !== undefined && (!Number.isInteger(Number(durationSeconds)) || Number(durationSeconds) < 1)) {
@@ -248,14 +255,14 @@ router.post('/', verifyToken, async (req, res) => {
  */
 router.post('/create', verifyToken, async (req, res) => {
   try {
-    const { videoId, scriptText, voiceId } = req.body;
+    const { videoId, scriptText, voiceId, persona, accent } = req.body;
     const narrationText = typeof scriptText === 'string' ? scriptText.trim() : '';
 
     // Validasi input
-    if (!narrationText) {
+    if (!narrationText || typeof persona !== 'string' || !persona.trim() || !supportedEnglishAccents.has(accent)) {
       return res.status(400).json({
         success: false,
-        error: 'scriptText wajib diisi dengan teks narasi yang valid.'
+        error: 'scriptText, persona, dan aksen Bahasa Inggris yang valid wajib diisi.'
       });
     }
 
@@ -333,10 +340,7 @@ router.post('/create', verifyToken, async (req, res) => {
           headers['x-api-key-external'] = JSON.stringify({ elevenlabs: elevenLabsKey });
           script = { type: 'text', input: narrationText, provider: { type: 'elevenlabs', voice_id: voiceId.trim() } };
         } else {
-          const personaDescription = typeof req.body.persona === 'string' && req.body.persona.trim()
-            ? req.body.persona
-            : video.persona;
-          const didVoiceId = getDidVoiceId(personaDescription);
+          const didVoiceId = getDidVoiceId(persona);
           script = {
             type: 'text',
             input: narrationText,

@@ -4,6 +4,13 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { verifyToken } from './auth.js';
 
 const router = express.Router();
+const supportedEnglishAccents = new Set([
+    'American (General American)', 'British (Received Pronunciation / RP)', 'British (Modern Standard)',
+    'Australian', 'Canadian', 'Irish', 'Scottish', 'New Zealand', 'South African', 'Indian English',
+    'Singaporean English', 'Filipino English', 'Neutral / International English', 'American Southern',
+    'American New York', 'British Cockney', 'British Northern', 'Soft & Calm English',
+    'Clear & Professional English', 'Energetic & Friendly English',
+]);
 
 // ==========================================
 // KONFIGURASI GEMINI
@@ -189,13 +196,13 @@ router.get('/check-connection', verifyToken, async (req, res) => {
 // ==========================================
 router.post('/generate-script', verifyToken, async (req, res) => {
     try {
-        const { topic, duration, durationSeconds, learningStyle, persona, targetWordCount, notes } = req.body;
+        const { topic, duration, durationSeconds, learningStyle, persona, accent, targetWordCount, notes } = req.body;
 
         // Validasi input
-        if (!topic || !duration || !persona) {
+        if (!topic || !duration || !persona || !supportedEnglishAccents.has(accent)) {
             return res.status(400).json({
                 success: false,
-                error: 'Input wajib: topic, duration, persona'
+                error: 'Input wajib: topic, duration, persona, accent'
             });
         }
 
@@ -215,6 +222,7 @@ Hasilkan HANYA naskah narasi tanpa komentar atau metadata apapun.`;
     - Durasi: ${Number(durationSeconds) > 0 ? `${Number(durationSeconds)} detik` : `${duration} menit`}
 - Gaya Belajar: ${learningStyle}
 - Level Siswa: ${persona}
+- Aksen Bahasa Inggris: ${accent}
 - Target Panjang: sekitar ${targetWordCount || 'auto'} kata
 ${notes ? `- Catatan Tambahan: ${notes}` : ''}
 
