@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,33 @@ type ProviderConfiguration = {
 };
 
 const videoProviderNames: Record<string, string> = { 'd-id': 'D-ID', heygen: 'HeyGen', elevenlabs: 'ElevenLabs' };
+
+const personaOptions = [
+  { label: 'Guru profesional yang sabar dan jelas dalam menjelaskan', description: 'Menjelaskan bertahap dengan tempo tenang dan memastikan ide utama mudah dipahami.' },
+  { label: 'Dosen perguruan tinggi yang formal dan akademis', description: 'Menggunakan penyampaian formal, istilah tepat, dan susunan materi akademis.' },
+  { label: 'Tutor pribadi yang ramah dan interaktif', description: 'Terasa seperti belajar satu lawan satu, dengan sapaan hangat dan ajakan berpikir.' },
+  { label: 'Mentor berpengalaman yang praktis dan to the point', description: 'Fokus pada wawasan yang bisa langsung diterapkan tanpa bertele-tele.' },
+  { label: 'Pengajar muda yang energik dan modern', description: 'Membawa suasana segar, dinamis, dan dekat dengan keseharian pelajar.' },
+  { label: 'Ahli materi yang mendalam dan detail', description: 'Menguraikan konsep secara menyeluruh, termasuk rincian dan hubungan antaride.' },
+  { label: 'Instruktur yang menggunakan analogi sehari-hari', description: 'Menghubungkan konsep dengan benda atau pengalaman yang akrab.' },
+  { label: 'Pembicara motivasional yang inspiratif', description: 'Membangkitkan rasa ingin tahu dan keyakinan untuk terus belajar.' },
+  { label: 'Guru yang humoris dan menyenangkan', description: 'Menyisipkan humor ringan agar pembelajaran terasa santai dan menarik.' },
+  { label: 'Pengajar yang sistematis dan terstruktur', description: 'Menyampaikan materi secara runtut, dari pengantar hingga kesimpulan.' },
+  { label: 'Tutor yang fokus pada pemahaman konsep dasar', description: 'Memperkuat fondasi dan menjelaskan istilah inti sebelum topik lanjutan.' },
+  { label: 'Dosen yang menekankan aplikasi praktis', description: 'Menunjukkan bagaimana konsep digunakan dalam pekerjaan dan situasi nyata.' },
+  { label: 'Instruktur yang cocok untuk pemula', description: 'Mengasumsikan audiens baru mengenal topik dan menjelaskan tanpa prasyarat.' },
+  { label: 'Pengajar yang cocok untuk tingkat menengah hingga advanced', description: 'Membahas nuansa, keterkaitan, dan tantangan lanjutan dengan asumsi dasar sudah dipahami.' },
+  { label: 'Mentor yang menggunakan pendekatan storytelling', description: 'Membingkai ide melalui cerita, situasi, atau tokoh yang mudah diikuti.' },
+  { label: 'Guru yang tegas namun tetap suportif', description: 'Menjaga fokus dan standar belajar sambil memberi dorongan yang positif.' },
+  { label: 'Ahli yang menjelaskan dengan bahasa sederhana', description: 'Mengubah istilah rumit menjadi kalimat ringkas dan mudah dicerna.' },
+  { label: 'Pengajar yang interaktif dan sering memberi contoh', description: 'Mengajak audiens mengikuti alur dan memperjelas setiap ide dengan contoh.' },
+  { label: 'Tutor yang fokus pada problem solving', description: 'Menuntun langkah analisis dan strategi untuk menyelesaikan masalah.' },
+  { label: 'Instruktur yang ramah untuk mahasiswa pemula', description: 'Menggunakan nada inklusif dan contoh relevan bagi mahasiswa yang baru memulai.' },
+  { label: 'Fasilitator diskusi yang terbuka dan reflektif', description: 'Mengundang beragam sudut pandang dan membantu audiens menarik kesimpulan.' },
+  { label: 'Pelatih yang berorientasi pada latihan dan praktik', description: 'Mengutamakan demonstrasi, langkah kerja, dan penerapan langsung.' },
+  { label: 'Pengajar yang kritis dan berbasis bukti', description: 'Mendorong penalaran serta menjelaskan klaim dengan fakta dan bukti.' },
+  { label: 'Pemandu belajar yang tenang dan empatik', description: 'Peka terhadap kesulitan belajar dan memberi penjelasan dengan penuh perhatian.' },
+];
 
 function cleanScript(value: string) {
   return value
@@ -47,6 +74,8 @@ function CreateVideoContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [personaNotes, setPersonaNotes] = useState('');
+  const [personaSearch, setPersonaSearch] = useState('');
+  const [isPersonaOpen, setIsPersonaOpen] = useState(false);
   const [topic, setTopic] = useState('');
   const [scriptDescription, setScriptDescription] = useState('');
   const [duration, setDuration] = useState('10');
@@ -75,6 +104,8 @@ function CreateVideoContent() {
   const videoProviderName = videoProviderNames[videoProvider] || videoProvider;
   const hasSavedCredential = (category: 'video' | 'voice', provider: string) => Boolean(providerConfig?.credentials.some((credential) => credential.category === category && credential.provider === provider));
   const wordCount = script.trim() ? script.trim().split(/\s+/).length : 0;
+  const selectedPersona = personaOptions.find((option) => option.label === personaNotes);
+  const filteredPersonas = useMemo(() => personaOptions.filter((option) => option.label.toLowerCase().includes(personaSearch.toLowerCase())), [personaSearch]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -82,7 +113,7 @@ function CreateVideoContent() {
       const retryId = searchParams.get('retry');
       const retryVideo = retryId ? getStoredVideos().find((video) => video.id === retryId && video.status === 'Failed') : undefined;
       if (retryVideo) {
-        setPersonaNotes(retryVideo.persona);
+        setPersonaNotes(personaOptions.some((option) => option.label === retryVideo.persona) ? retryVideo.persona : '');
         setTopic(retryVideo.topic);
         setScriptDescription('');
         if (retryVideo.durationSeconds) {
@@ -182,7 +213,7 @@ function CreateVideoContent() {
         {errorMsg && <div className="rounded-md border border-red-200 bg-red-50 p-4 text-red-600">{errorMsg}</div>}
         {providerConfig && <Card><CardContent className="flex flex-wrap items-center justify-between gap-3 pt-5"><div><p className="font-semibold">Pengaturan provider</p><p className="text-sm text-slate-600">Naskah: {promptProviderName} · Video dan suara: {videoProviderName}</p></div><Link href="/dashboard/api-keys" className="text-sm font-semibold text-indigo-700 hover:underline">Ubah pengaturan API</Link></CardContent></Card>}
         <Card><CardHeader><CardTitle>Deskripsi naskah</CardTitle></CardHeader><CardContent><Label htmlFor="script-description">Naskah seperti apa yang ingin dibuat?</Label><textarea id="script-description" value={scriptDescription} onChange={(event) => { setScriptDescription(event.target.value); clearScript(); }} placeholder="Contoh: jelaskan pengertian, tiga langkah utama, dan satu contoh sederhana. Tetap fokus pada topik materi." className="mt-2 min-h-28 w-full rounded-md border border-slate-300 bg-white p-3 text-sm" required /><p className="mt-2 text-sm text-slate-600">{promptProviderName} selalu menulis naskah dalam Bahasa Inggris menggunakan kosakata sederhana untuk pembelajaran anak SD.</p></CardContent></Card>
-        <Card><CardHeader><CardTitle>Deskripsi persona</CardTitle></CardHeader><CardContent><Label htmlFor="persona-notes">Seperti apa persona yang ingin digunakan?</Label><textarea id="persona-notes" value={personaNotes} onChange={(event) => { setPersonaNotes(event.target.value); clearScript(); }} placeholder="Contoh: guru matematika yang sabar, energik, dan menjelaskan konsep dengan analogi sederhana untuk siswa SMA" className="mt-2 min-h-28 w-full rounded-md border border-slate-300 bg-white p-3 text-sm" required /><p className="mt-2 text-sm text-slate-600">{promptProviderName} memakai catatan ini untuk mengikuti karakter dan gaya penyampaian naskah.</p></CardContent></Card>
+        <Card className="overflow-visible"><CardHeader><CardTitle>Deskripsi persona</CardTitle></CardHeader><CardContent><Label htmlFor="persona-notes">Pilih persona yang ingin digunakan</Label><div className="relative mt-2"><input id="persona-notes" role="combobox" aria-expanded={isPersonaOpen} aria-controls="persona-options" aria-autocomplete="list" autoComplete="off" value={isPersonaOpen ? personaSearch : personaNotes} onFocus={() => { setPersonaSearch(''); setIsPersonaOpen(true); }} onChange={(event) => { setPersonaSearch(event.target.value); setIsPersonaOpen(true); }} onKeyDown={(event) => { if (event.key === 'Escape') setIsPersonaOpen(false); if (event.key === 'Enter' && isPersonaOpen && filteredPersonas[0]) { event.preventDefault(); setPersonaNotes(filteredPersonas[0].label); setPersonaSearch(''); setIsPersonaOpen(false); clearScript(); } }} placeholder="Cari dan pilih persona..." className="w-full rounded-md border border-slate-300 bg-white p-3 text-sm outline-none focus:border-blue-600" required readOnly={!isPersonaOpen} /><input type="hidden" name="persona" value={personaNotes} required />{isPersonaOpen && <div id="persona-options" role="listbox" className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">{filteredPersonas.length ? filteredPersonas.map((option) => <button key={option.label} type="button" role="option" aria-selected={personaNotes === option.label} onClick={() => { setPersonaNotes(option.label); setPersonaSearch(''); setIsPersonaOpen(false); clearScript(); }} className="block w-full px-3 py-2.5 text-left text-sm hover:bg-blue-50 focus:bg-blue-50 focus:outline-none">{option.label}</button>) : <p className="px-3 py-2.5 text-sm text-slate-500">Tidak ada persona yang cocok.</p>}</div>}</div>{selectedPersona && <p className="mt-2 rounded-md bg-blue-50 p-3 text-sm text-slate-700">{selectedPersona.description}</p>}<p className="mt-2 text-sm text-slate-600">{promptProviderName} memakai persona terpilih untuk mengikuti karakter dan gaya penyampaian naskah.</p></CardContent></Card>
         <Card><CardHeader><CardTitle>Detail video</CardTitle></CardHeader><CardContent><form onSubmit={handleSubmit} className="space-y-5"><div className="grid grid-cols-1 items-end gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(8rem,0.7fr)_minmax(9rem,0.8fr)]"><div className="min-w-0 space-y-2"><Label htmlFor="topic">Topik</Label><Input id="topic" value={topic} onChange={(event) => { setTopic(event.target.value); clearScript(); }} className="h-10" required /></div><div className="min-w-0 space-y-2"><Label htmlFor="duration">Durasi video</Label><Input id="duration" type="number" min="1" max={durationUnit === 'seconds' ? '600' : '10'} step="1" value={duration} onChange={(event) => { setDuration(event.target.value); clearScript(); }} className="h-10" required /></div><div className="min-w-0 space-y-2"><Label htmlFor="duration-unit">Satuan durasi</Label><select id="duration-unit" value={durationUnit} onChange={(event) => { setDurationUnit(event.target.value as 'seconds' | 'minutes'); clearScript(); }} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"><option value="seconds">Detik</option><option value="minutes">Menit</option></select></div></div><p className="text-sm text-slate-600">Target video: {durationLabel}. Naskah dibuat sekitar {Math.max(1, Math.ceil(durationSeconds * 110 / 60))} kata.</p>
         <Button type="button" onClick={generateScript} disabled={isCreatingScript || !personaNotes.trim()}>{isCreatingScript ? 'Membuat preview...' : `Buat preview naskah dengan ${promptProviderName}`}</Button>{script && <div className="space-y-3"><Label htmlFor="script">Preview naskah</Label><p className="text-sm text-slate-600">{wordCount} kata. Naskah akan diproses menjadi video oleh {videoProviderName}.</p><textarea id="script" value={script} onChange={(event) => { setScript(event.target.value); setIsConfirmed(false); }} className="min-h-40 w-full rounded-md border border-slate-300 bg-white p-3 text-sm" /><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={isConfirmed} onChange={(event) => setIsConfirmed(event.target.checked)} /> Saya telah meninjau naskah ini.</label></div>}<Button type="submit" disabled={isSubmitting || !script.trim() || !isConfirmed || !providerConfig}>{isSubmitting ? 'Memproses video...' : `Konfirmasi dan buat video ${videoProviderName}`}</Button></form></CardContent></Card>
       </div>
