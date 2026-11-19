@@ -27,9 +27,9 @@ model User {
   // Data Profil Pengguna
   nama      String
   nim       String?  @unique
-  email     String   @unique 
-  password  String   
-  role      Role     @default(MAHASISWA) 
+  email     String   @unique
+  password  String
+  role      Role     @default(MAHASISWA)
   
   // Relasi
   videos    Video[]

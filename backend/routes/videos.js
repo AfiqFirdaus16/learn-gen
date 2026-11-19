@@ -191,6 +191,33 @@ router.get('/', verifyToken, async (req, res) => {
   }
 });
 
+router.delete('/:id', verifyToken, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) {
+      return res.status(400).json({ success: false, error: 'ID riwayat materi tidak valid.' });
+    }
+
+    const video = await prisma.video.findFirst({
+      where: { id, userId: req.user.id },
+      select: { id: true },
+    });
+
+    if (!video) {
+      return res.status(404).json({ success: false, error: 'Riwayat materi tidak ditemukan.' });
+    }
+
+    await prisma.video.delete({ where: { id } });
+    return res.json({ success: true, message: 'Riwayat materi berhasil dihapus.' });
+  } catch (error) {
+    if (error?.code === 'P2025') {
+      return res.status(404).json({ success: false, error: 'Riwayat materi tidak ditemukan.' });
+    }
+    console.error('Delete video history error:', error);
+    return res.status(500).json({ success: false, error: 'Gagal menghapus riwayat materi.' });
+  }
+});
+
 router.post('/', verifyToken, async (req, res) => {
   try {
     const { learnerName, topic, learningStyle, persona, accent, duration, durationSeconds, accentType, provider, voiceProvider, script, scriptDescription, generatedPrompt, elevenlabsVideoId, status = 'processing' } = req.body;

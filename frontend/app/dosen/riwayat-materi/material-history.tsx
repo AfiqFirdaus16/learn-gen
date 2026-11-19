@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ExternalLink, RefreshCw } from 'lucide-react';
+import { ExternalLink, RefreshCw, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { API_BASE_URL } from '@/lib/api-config';
@@ -52,6 +52,7 @@ export default function MaterialHistory() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [homeHref, setHomeHref] = useState('/dosen');
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const refreshHistory = useCallback(async (showLoading = false) => {
     if (showLoading) setIsRefreshing(true);
@@ -104,6 +105,22 @@ export default function MaterialHistory() {
 
     return () => window.clearInterval(intervalId);
   }, [videos]);
+
+  async function deleteHistory(video: MaterialRecord) {
+    if (!window.confirm(`Hapus riwayat materi “${video.topic}”? Tindakan ini tidak dapat dibatalkan.`)) return;
+
+    setDeletingId(video.id);
+    setError('');
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}/api/videos/${video.id}`, { method: 'DELETE' });
+      await readApiJson(response);
+      setVideos((current) => current.filter((item) => item.id !== video.id));
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Gagal menghapus riwayat materi.');
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
@@ -170,6 +187,21 @@ export default function MaterialHistory() {
                       )}
                     </div>
                   </CardContent>
+                  <div className="mx-6 mb-6 border-t border-slate-200 pt-4">
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="text-rose-600 hover:text-rose-700"
+                        onClick={() => void deleteHistory(video)}
+                        disabled={deletingId === video.id}
+                      >
+                        <Trash2 className="mr-2 size-4" aria-hidden="true" />
+                        {deletingId === video.id ? 'Menghapus...' : 'Hapus'}
+                      </Button>
+                    </div>
+                  </div>
                 </Card>
               );
             })}
