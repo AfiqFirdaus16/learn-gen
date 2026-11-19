@@ -53,6 +53,7 @@ export default function MaterialHistory() {
   const [error, setError] = useState('');
   const [homeHref, setHomeHref] = useState('/dosen');
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [confirmingId, setConfirmingId] = useState<number | null>(null);
 
   const refreshHistory = useCallback(async (showLoading = false) => {
     if (showLoading) setIsRefreshing(true);
@@ -107,17 +108,28 @@ export default function MaterialHistory() {
   }, [videos]);
 
   async function deleteHistory(video: MaterialRecord) {
-    if (!window.confirm(`Hapus riwayat materi “${video.topic}”? Tindakan ini tidak dapat dibatalkan.`)) return;
-
     setDeletingId(video.id);
     setError('');
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 15_000);
+
     try {
-      const response = await authenticatedFetch(`${API_BASE_URL}/api/videos/${video.id}`, { method: 'DELETE' });
+      const response = await authenticatedFetch(`${API_BASE_URL}/api/videos/${video.id}`, {
+        method: 'DELETE',
+        signal: controller.signal,
+      });
       await readApiJson(response);
       setVideos((current) => current.filter((item) => item.id !== video.id));
+      setConfirmingId(null);
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : 'Gagal menghapus riwayat materi.');
+      if (deleteError instanceof DOMException && deleteError.name === 'AbortError') {
+        setError('Permintaan hapus terlalu lama. Periksa koneksi lalu coba lagi.');
+      } else {
+        setError(deleteError instanceof Error ? deleteError.message : 'Gagal menghapus riwayat materi.');
+      }
     } finally {
+      window.clearTimeout(timeoutId);
       setDeletingId(null);
     }
   }
@@ -188,19 +200,46 @@ export default function MaterialHistory() {
                     </div>
                   </CardContent>
                   <div className="mx-6 mb-6 border-t border-slate-200 pt-4">
-                    <div className="flex justify-end">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="text-rose-600 hover:text-rose-700"
-                        onClick={() => void deleteHistory(video)}
-                        disabled={deletingId === video.id}
-                      >
-                        <Trash2 className="mr-2 size-4" aria-hidden="true" />
-                        {deletingId === video.id ? 'Menghapus...' : 'Hapus'}
-                      </Button>
-                    </div>
+                    {confirmingId === video.id ? (
+                      <div className="flex flex-col gap-3 rounded-lg border border-rose-200 bg-rose-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-sm font-medium text-rose-800">Hapus riwayat “{video.topic}”? Tindakan ini tidak dapat dibatalkan.</p>
+                        <div className="flex shrink-0 justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setConfirmingId(null)}
+                            disabled={deletingId === video.id}
+                          >
+                            Batal
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => void deleteHistory(video)}
+                            disabled={deletingId === video.id}
+                          >
+                            <Trash2 className="mr-2 size-4" aria-hidden="true" />
+                            {deletingId === video.id ? 'Menghapus...' : 'Ya, hapus'}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="text-rose-600 hover:text-rose-700"
+                          onClick={() => setConfirmingId(video.id)}
+                          disabled={deletingId !== null}
+                        >
+                          <Trash2 className="mr-2 size-4" aria-hidden="true" />
+                          Hapus
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </Card>
               );
